@@ -30,9 +30,9 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('readings/status', 'readings.status')->name('readings.status');
     Route::get('readings/{reading}/photo', ReadingPhotoController::class)->name('readings.photo');
 
-    Volt::route('settlements', 'settlements.index')->name('settlements.index');
+    Volt::route('settlements', 'settlements.index')->middleware('can:view-finance')->name('settlements.index');
     Volt::route('settlements/{meter}/{tenant}', 'settlements.create')->middleware('can:manage')->name('settlements.create');
-    Volt::route('prices', 'prices.index')->name('prices.index');
+    Volt::route('prices', 'prices.index')->middleware('can:view-finance')->name('prices.index');
     Volt::route('reports', 'reports.index')->name('reports.index');
 
     Route::prefix('pdf')->name('pdf.')->controller(PdfController::class)->group(function () {

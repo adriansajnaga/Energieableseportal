@@ -25,6 +25,9 @@ class AppServiceProvider extends ServiceProvider
         // Verwaltung: Stammdaten, Preise, Abrechnungen, Benutzer, Einstellungen.
         Gate::define('manage', fn (User $user) => $user->role === Role::Admin);
 
+        // Abrechnungen, Preise und Rechnungen ansehen: Verwaltung und Lesezugriff, nicht der Hausmeister.
+        Gate::define('view-finance', fn (User $user) => in_array($user->role, [Role::Admin, Role::Viewer], true));
+
         // Ablesungen erfassen: Verwaltung und Hausmeister.
         Gate::define('record-readings', fn (User $user) => in_array($user->role, [Role::Admin, Role::Caretaker], true));
     }

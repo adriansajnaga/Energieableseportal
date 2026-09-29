@@ -6,7 +6,6 @@ use App\Enums\ReadingSource;
 use App\Enums\ReadingStatus;
 use App\Enums\SettlementType;
 use App\Models\ElectricityPrice;
-use App\Models\Meter;
 use App\Models\MeterAssignment;
 use App\Models\Reading;
 use App\Models\Setting;
