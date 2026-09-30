@@ -339,6 +339,17 @@ class SettlementService
         return ['created' => $created, 'errors' => $errors];
     }
 
+    /**
+     * Markiert offene Monatsabrechnungen bis einschließlich $upTo als außerhalb des Portals abgerechnet
+     * (z. B. im Altsystem). Sie erscheinen danach nicht mehr bei den Sammelrechnungen.
+     */
+    public function markExternallyInvoiced(CarbonInterface $upTo): int
+    {
+        return Settlement::query()->openForCollection()
+            ->whereDate('period', '<=', CarbonImmutable::parse($upTo)->startOfMonth()->toDateString())
+            ->update(['is_invoiced' => true]);
+    }
+
     /** Storniert eine Sammelrechnung; die enthaltenen Monate können danach neu abgerechnet werden. */
     private function cancelCollective(Settlement $collective, ?User $user): Settlement
     {

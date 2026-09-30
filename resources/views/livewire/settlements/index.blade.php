@@ -100,7 +100,7 @@ new #[Title('Abrechnung')] class extends Component {
             $settlement->tenant->update(['email' => $this->emailTo]);
         }
 
-        unset($this->detail, $this->candidates, $this->collectives);
+        unset($this->detail, $this->candidates, $this->collectives, $this->pendingEmailCount);
         Flux::toast(__('Rechnung :number an :email versendet.', ['number' => $settlement->formattedNumber(), 'email' => $this->emailTo]), variant: 'success');
     }
 
@@ -157,6 +157,15 @@ new #[Title('Abrechnung')] class extends Component {
             ->count('tenant_id');
     }
 
+    /** Offene Monatsabrechnungen (ohne Rechnung) bis einschließlich des gewählten Monats. */
+    #[Computed]
+    public function openCount(): int
+    {
+        return Settlement::query()->openForCollection()
+            ->whereDate('period', '<=', $this->period()->toDateString())
+            ->count();
+    }
+
     #[Computed]
     public function totals(): array
     {
@@ -207,7 +216,7 @@ new #[Title('Abrechnung')] class extends Component {
             return;
         }
 
-        unset($this->candidates, $this->collectives, $this->openTenantsCount);
+        unset($this->candidates, $this->collectives, $this->openTenantsCount, $this->openCount);
         Flux::modal('collect')->close();
         Flux::toast(__('Sammelrechnung :number erstellt.', ['number' => $collective->formattedNumber()]), variant: 'success');
     }
@@ -223,6 +232,15 @@ new #[Title('Abrechnung')] class extends Component {
         foreach ($result['errors'] as $error) {
             Flux::toast($error, variant: 'danger');
         }
+    }
+
+    public function markExternal(SettlementService $service): void
+    {
+        Gate::authorize('manage');
+        $count = $service->markExternallyInvoiced($this->period());
+        unset($this->candidates, $this->openCount, $this->openTenantsCount);
+
+        Flux::toast(__(':count Abrechnungen als extern abgerechnet markiert.', ['count' => $count]), variant: 'success');
     }
 
     public function cancel(Settlement $settlement, SettlementService $service): void
@@ -247,15 +265,7 @@ new #[Title('Abrechnung')] class extends Component {
     {
         Gate::authorize('manage');
 
-        $settlements = Settlement::query()
-            ->whereIn('type', [SettlementType::Invoice, SettlementType::Collective])
-            ->numbered()
-            ->whereNull('cancelled_at')
-            ->whereNull('emailed_at')
-            ->whereDate('period', $this->period()->toDateString())
-            ->whereHas('tenant', fn ($q) => $q->where('send_invoices_by_email', true)->whereNotNull('email'))
-            ->with('tenant')
-            ->get();
+        $settlements = $this->pendingEmailQuery()->with('tenant')->get();
 
         $sent = 0;
 
@@ -269,8 +279,26 @@ new #[Title('Abrechnung')] class extends Component {
             }
         }
 
-        unset($this->candidates, $this->collectives);
+        unset($this->candidates, $this->collectives, $this->pendingEmailCount);
         Flux::toast(__(':count Rechnungen per E-Mail versendet.', ['count' => $sent]), variant: 'success');
+    }
+
+    /** Rechnungen des Monats, die noch nicht versendet wurden und deren Mieter E-Mail-Versand gewählt hat. */
+    private function pendingEmailQuery()
+    {
+        return Settlement::query()
+            ->whereIn('type', [SettlementType::Invoice, SettlementType::Collective])
+            ->numbered()
+            ->whereNull('cancelled_at')
+            ->whereNull('emailed_at')
+            ->whereDate('period', $this->period()->toDateString())
+            ->whereHas('tenant', fn ($q) => $q->where('send_invoices_by_email', true)->whereNotNull('email'));
+    }
+
+    #[Computed]
+    public function pendingEmailCount(): int
+    {
+        return $this->pendingEmailQuery()->count();
     }
 
     public function badgeColor(string $status): string
@@ -298,8 +326,21 @@ new #[Title('Abrechnung')] class extends Component {
             wire:confirm="{{ __('Für jeden Mieter eine Sammelrechnung über alle noch nicht in Rechnung gestellten Abrechnungen bis :month erstellen?', ['month' => $this->period()->format('m/Y')]) }}">
             {{ __('Sammelrechnungen erstellen (:count)', ['count' => $this->openTenantsCount]) }}
         </flux:button>
+        <flux:dropdown>
+            <flux:button icon="ellipsis-horizontal" :tooltip="__('Weitere Aktionen')" />
+            <flux:menu>
+                <flux:menu.item icon="check-badge" wire:click="markExternal" :disabled="$this->openCount === 0"
+                    wire:confirm="{{ __('Alle :count noch nicht in Rechnung gestellten Abrechnungen bis einschließlich :month als extern abgerechnet markieren? Sie erscheinen danach nicht mehr bei den Sammelrechnungen.', ['count' => $this->openCount, 'month' => $this->period()->format('m/Y')]) }}">
+                    {{ __('Bis :month als extern abgerechnet markieren (:count)', ['month' => $this->period()->format('m/Y'), 'count' => $this->openCount]) }}
+                </flux:menu.item>
+                <flux:menu.separator />
+                <flux:menu.item icon="envelope" wire:click="sendEmails" :disabled="$this->pendingEmailCount === 0"
+                    wire:confirm="{{ __(':count Rechnungen dieses Monats jetzt an alle Mieter mit E-Mail-Versand senden?', ['count' => $this->pendingEmailCount]) }}">
+                    {{ __('Alle Rechnungen des Monats per E-Mail senden (:count)', ['count' => $this->pendingEmailCount]) }}
+                </flux:menu.item>
+            </flux:menu>
+        </flux:dropdown>
         <flux:button icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:button>
-        <flux:button icon="envelope" wire:click="sendEmails" wire:confirm="{{ __('Alle noch nicht versendeten Rechnungen dieses Monats per E-Mail senden?') }}">{{ __('Per E-Mail senden') }}</flux:button>
         <flux:dropdown>
             <flux:button icon="arrow-down-tray" icon-trailing="chevron-down">{{ __('Export') }}</flux:button>
             <flux:menu>

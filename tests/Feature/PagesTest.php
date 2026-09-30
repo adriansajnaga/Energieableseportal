@@ -305,3 +305,29 @@ it('deletes the latest invoice from the detail dialog', function () {
 
     expect(Settlement::find($last->id))->toBeNull();
 });
+
+it('exports all settlements of a month including those without invoice number', function () {
+    $settlement = Settlement::first();
+    $month = $settlement->period->format('Y-m');
+    Settlement::whereDate('period', $settlement->period)->update(['invoice_number' => null, 'is_invoiced' => false]);
+
+    $csv = $this->actingAs($this->admin)->get(route('export.settlements', $month))->streamedContent();
+
+    expect($csv)->toContain($settlement->tenant->name)->toContain('ohne Rechnung')
+        ->and(substr_count($csv, "\n"))->toBe(Settlement::whereDate('period', $settlement->period)->count() + 1);
+});
+
+it('marks old settlements as invoiced outside the portal up to the chosen month', function () {
+    Settlement::query()->update(['invoice_number' => null, 'is_invoiced' => false]);
+    $months = Settlement::query()->orderBy('period')->pluck('period')->unique()->values();
+    $cutoff = $months[1];
+
+    Volt::actingAs($this->admin)->test('settlements.index', ['month' => $cutoff->format('Y-m')])
+        ->call('markExternal');
+
+    expect(Settlement::query()->openForCollection()->whereDate('period', '<=', $cutoff)->count())->toBe(0)
+        ->and(Settlement::query()->openForCollection()->whereDate('period', '>', $cutoff)->count())->toBeGreaterThan(0);
+
+    $csv = $this->actingAs($this->admin)->get(route('export.settlements', $cutoff->format('Y-m')))->streamedContent();
+    expect($csv)->toContain('extern abgerechnet');
+});

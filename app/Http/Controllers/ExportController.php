@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\SettlementType;
 use App\Models\Setting;
 use App\Models\Settlement;
 use Carbon\CarbonImmutable;
@@ -10,12 +11,27 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExportController extends Controller
 {
-    /** Alle Rechnungen und Stornos des Monats als CSV (Excel-kompatibel, Semikolon, UTF-8 mit BOM). */
+    /**
+     * Alle Abrechnungen des Monats als CSV (Excel-kompatibel, Semikolon, UTF-8 mit BOM):
+     * gültige Monatsabrechnungen – mit oder ohne Rechnung – sowie Sammel- und Stornorechnungen.
+     */
     public function settlements(string $month): StreamedResponse
     {
-        $rows = $this->invoices($month)->map(fn (Settlement $s) => [
-            $s->formattedNumber(),
-            $s->type->label(),
+        abort_unless(preg_match('/^\d{4}-\d{2}$/', $month) === 1, 404);
+        $period = CarbonImmutable::createFromFormat('!Y-m', $month)->toDateString();
+
+        $documents = Settlement::query()
+            ->whereDate('period', $period)
+            ->where(fn ($q) => $q->where(fn ($q) => $q->effective())
+                ->orWhere(fn ($q) => $q->whereIn('type', [SettlementType::Collective, SettlementType::Cancellation])->numbered()))
+            ->with(['tenant', 'meter', 'collectives'])
+            ->orderByRaw('invoice_number is null')
+            ->orderBy('invoice_number')
+            ->get();
+
+        $rows = $documents->map(fn (Settlement $s) => [
+            $s->invoiceLabel(),
+            $this->status($s),
             $s->invoice_date?->format('d.m.Y'),
             $s->period->format('m/Y'),
             $s->tenant->debtor_number,
@@ -31,9 +47,20 @@ class ExportController extends Controller
         ]);
 
         return $this->csv('Abrechnungen_'.$month.'.csv', [
-            'Rechnungsnr.', 'Art', 'Rechnungsdatum', 'Monat', 'Kundennr.', 'Mieter', 'Zähler', 'von', 'bis',
+            'Rechnungsnr.', 'Art / Status', 'Rechnungsdatum', 'Monat', 'Kundennr.', 'Mieter', 'Zähler', 'von', 'bis',
             'kWh', 'Preis €/kWh', 'Netto', 'USt', 'Brutto',
         ], $rows);
+    }
+
+    private function status(Settlement $s): string
+    {
+        return match (true) {
+            $s->type !== SettlementType::Invoice => $s->type->label().($s->isCancelled() ? ' (storniert)' : ''),
+            $s->invoice_number !== null => $s->type->label(),
+            $s->activeCollective() !== null => 'in Sammelrechnung',
+            $s->is_invoiced => 'extern abgerechnet',
+            default => 'ohne Rechnung',
+        };
     }
 
     /**
