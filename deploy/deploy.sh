@@ -50,7 +50,14 @@ missing=""
 for ext in $REQUIRED_EXT; do
     "$PHP" -r "exit(extension_loaded('$ext') ? 0 : 1);" || missing="$missing $ext"
 done
-[ -z "$missing" ] || fail "PHP-Erweiterungen fehlen:$missing. Beim Hoster aktivieren lassen (z. B. ea-php82-php-fileinfo)."
+# fileinfo braucht nur die Webseite (Foto-Uploads), nicht die Kommandozeile.
+COMPOSER_IGNORE=""
+if [[ " $missing " == *" fileinfo "* ]]; then
+    log "WARNUNG: fileinfo fehlt im Kommandozeilen-PHP. Fuer Foto-Uploads muss es im Web-PHP aktiv sein."
+    missing="${missing/ fileinfo/}"
+    COMPOSER_IGNORE="--ignore-platform-req=ext-fileinfo"
+fi
+[ -z "$missing" ] || fail "PHP-Erweiterungen fehlen:$missing. Beim Hoster aktivieren lassen."
 
 # --- Composer: eigene, aktuelle Kopie (System-Composer ist oft zu alt) -------
 COMPOSER="$APP/composer.phar"
@@ -73,7 +80,7 @@ grep -q '^APP_KEY=base64:' "$APP/.env" || fail "APP_KEY in $APP/.env ist leer. L
 cd "$APP"
 export COMPOSER_HOME="${COMPOSER_HOME:-$HOME/.composer}"
 log "composer install"
-"$PHP" "$COMPOSER" install --no-dev --optimize-autoloader --no-interaction --no-progress 2>&1
+"$PHP" "$COMPOSER" install --no-dev --optimize-autoloader --no-interaction --no-progress $COMPOSER_IGNORE 2>&1
 
 log "Öffentliche Dateien nach $WEB kopieren"
 mkdir -p "$WEB"

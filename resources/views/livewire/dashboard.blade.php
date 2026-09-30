@@ -89,6 +89,12 @@ new #[Title('Dashboard')] class extends Component {
         <x-month-switcher :period="$this->period()" />
     </x-page-header>
 
+    @if (! extension_loaded('fileinfo') && Gate::allows('manage'))
+        <flux:callout icon="exclamation-triangle" color="red" class="mb-4"
+            :heading="__('PHP-Erweiterung „fileinfo“ fehlt')"
+            :text="__('Fotos der Zählerstände können nicht hochgeladen werden. Bitte beim Hoster aktivieren lassen (PHP :version).', ['version' => PHP_VERSION])" />
+    @endif
+
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <flux:card>
             <flux:subheading>{{ __('Ablesungen :month', ['month' => now()->format('m/Y')]) }}</flux:subheading>
