@@ -294,3 +294,14 @@ it('fills subject and text from the template and sends the edited version', func
     Mail::assertSent(InvoiceMail::class, fn ($mail) => $mail->subjectText === 'Ihre Rechnung'
         && str_contains($mail->bodyText, 'bitte beachten Sie die Anlage.'));
 });
+
+it('deletes the latest invoice from the detail dialog', function () {
+    $last = Settlement::orderByDesc('invoice_number')->first();
+
+    Volt::actingAs($this->admin)->test('settlements.index', ['month' => $last->period->format('Y-m')])
+        ->call('showDetail', $last->id)
+        ->assertSee('Rechnung löschen')
+        ->call('deleteDetail');
+
+    expect(Settlement::find($last->id))->toBeNull();
+});

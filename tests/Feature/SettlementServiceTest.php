@@ -6,6 +6,7 @@ use App\Enums\SettlementType;
 use App\Models\ElectricityPrice;
 use App\Models\Meter;
 use App\Models\Reading;
+use App\Models\Setting;
 use App\Models\Settlement;
 use App\Models\Tenant;
 use App\Services\MeterService;
@@ -247,4 +248,49 @@ it('settles only the days until a move-out in the middle of the month', function
 
     $settlement = $this->service->settle($candidate, $candidate->defaultSample(), null, true, null);
     expect($settlement->consumption_kwh)->toBe(80);
+});
+
+it('deletes the last unsent invoice and reuses its number', function () {
+    $sample = reading($this->meter, 1100, '2024-06-21');
+    $settlement = $this->service->settle($this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole(), $sample, null, true, null);
+    $endReadingId = $settlement->end_reading_id;
+    expect($settlement->invoice_number)->toBe(1)->and($this->service->deletionBlocker($settlement))->toBeNull();
+
+    $this->service->deleteInvoice($settlement);
+
+    expect(Settlement::find($settlement->id))->toBeNull()
+        ->and(Reading::find($endReadingId))->toBeNull()
+        ->and(Setting::find('invoice_counter')->value)->toBe('0');
+
+    // Monat erneut abrechnen: gleiche Nummer.
+    $again = $this->service->settle($this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole(), $sample, null, true, null);
+    expect($again->invoice_number)->toBe(1);
+});
+
+it('refuses to delete sent invoices or when a later number exists', function () {
+    $sample = reading($this->meter, 1100, '2024-06-21');
+    $june = $this->service->settle($this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole(), $sample, null, true, null);
+
+    $june->update(['emailed_at' => now()]);
+    expect($this->service->deletionBlocker($june))->not->toBeNull();
+    $june->update(['emailed_at' => null]);
+
+    reading($this->meter, 1300, '2024-07-31');
+    $july = $this->service->candidates(CarbonImmutable::parse('2024-07-01'))->sole();
+    $this->service->settle($july, $july->defaultSample(), null, true, null);
+
+    expect($this->service->deletionBlocker($june->fresh()))->not->toBeNull()
+        ->and(fn () => $this->service->deleteInvoice($june->fresh()))->toThrow(RuntimeException::class);
+});
+
+it('deletes a collective invoice and releases its months', function () {
+    reading($this->meter, 1100, '2024-06-21');
+    $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), false, null);
+    $collective = $this->service->collect(Settlement::query()->openForCollection()->get(), null);
+
+    $this->service->deleteInvoice($collective);
+
+    expect(Settlement::find($collective->id))->toBeNull()
+        ->and(Settlement::query()->openForCollection()->count())->toBe(1)
+        ->and($this->service->collect(Settlement::query()->openForCollection()->get(), null)->invoice_number)->toBe(1);
 });

@@ -57,6 +57,25 @@ new #[Title('Abrechnung')] class extends Component {
         Flux::modal('detail')->show();
     }
 
+    public function deleteDetail(SettlementService $service): void
+    {
+        Gate::authorize('manage');
+        $number = $this->detail?->formattedNumber();
+
+        try {
+            $service->deleteInvoice($this->detail);
+        } catch (RuntimeException $e) {
+            Flux::toast($e->getMessage(), variant: 'danger');
+
+            return;
+        }
+
+        $this->detailId = null;
+        unset($this->detail, $this->candidates, $this->collectives, $this->openTenantsCount);
+        Flux::modal('detail')->close();
+        Flux::toast(__('Rechnung :number gelöscht. Die Nummer wird erneut vergeben.', ['number' => $number]), variant: 'success');
+    }
+
     public function sendDetail(InvoiceMailer $mailer): void
     {
         Gate::authorize('manage');
@@ -479,10 +498,23 @@ new #[Title('Abrechnung')] class extends Component {
                     <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-semibold dark:border-zinc-700"><span>{{ __('Brutto') }}</span><span>{{ $money($d->gross_amount) }}</span></div>
                 </div>
 
-                <div class="flex flex-wrap items-end gap-3">
+                <div class="flex flex-wrap items-center gap-3">
                     @if ($d->canBeEmailed())
                         <flux:button icon="document-text" :href="route('pdf.invoice', $d)" target="_blank">{{ __('PDF öffnen') }}</flux:button>
                     @endif
+                    @can('manage')
+                        @if ($d->canBeEmailed() && in_array($d->type, [\App\Enums\SettlementType::Invoice, \App\Enums\SettlementType::Collective], true))
+                            @php($blocker = app(\App\Services\SettlementService::class)->deletionBlocker($d))
+                            @if ($blocker)
+                                <flux:text class="text-xs">{{ __('Löschen nicht möglich') }}: {{ $blocker }}</flux:text>
+                            @else
+                                <flux:button variant="danger" icon="trash" wire:click="deleteDetail"
+                                    wire:confirm="{{ __('Rechnung :number endgültig löschen? Die Nummer wird für die nächste Rechnung wieder verwendet.', ['number' => $d->formattedNumber()]) }}">
+                                    {{ __('Rechnung löschen') }}
+                                </flux:button>
+                            @endif
+                        @endif
+                    @endcan
                 </div>
 
                 @can('manage')

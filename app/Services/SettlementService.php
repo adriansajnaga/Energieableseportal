@@ -370,6 +370,61 @@ class SettlementService
     }
 
     /**
+     * Grund, warum eine Rechnung nicht gelöscht werden kann, oder null, wenn Löschen erlaubt ist.
+     * Löschen ist nur für die zuletzt vergebene, noch nicht versendete Nummer möglich,
+     * damit die Rechnungsnummern lückenlos bleiben. Sonst bleibt nur die Stornierung.
+     */
+    public function deletionBlocker(Settlement $settlement): ?string
+    {
+        return match (true) {
+            ! in_array($settlement->type, [SettlementType::Invoice, SettlementType::Collective], true) => __('Nur Rechnungen und Sammelrechnungen können gelöscht werden.'),
+            $settlement->invoice_number === null => __('Diese Abrechnung hat keine Rechnungsnummer.'),
+            $settlement->isCancelled() => __('Die Rechnung ist bereits storniert.'),
+            $settlement->emailed_at !== null => __('Die Rechnung wurde bereits versendet. Bitte stornieren.'),
+            $settlement->invoice_number < (int) Settlement::max('invoice_number') => __('Nach dieser Rechnung wurde bereits eine weitere Nummer vergeben. Bitte stornieren.'),
+            $settlement->type === SettlementType::Invoice && Settlement::query()->effective()
+                ->where('start_reading_id', $settlement->end_reading_id)->exists() => __('Bitte zuerst die Abrechnung des Folgemonats löschen oder stornieren.'),
+            default => null,
+        };
+    }
+
+    /**
+     * Löscht eine versehentlich erstellte Rechnung ohne Stornobeleg. Die Rechnungsnummer wird wieder frei.
+     * Bei einer Monatsrechnung wird auch der berechnete Endstand entfernt, der Monat kann neu abgerechnet werden.
+     * Bei einer Sammelrechnung werden die enthaltenen Monate wieder für eine Sammelrechnung frei.
+     */
+    public function deleteInvoice(Settlement $settlement): void
+    {
+        DB::transaction(function () use ($settlement) {
+            Setting::query()->firstOrCreate(['key' => 'invoice_counter'], ['value' => Setting::DEFAULTS['invoice_counter']]);
+            $counter = Setting::query()->whereKey('invoice_counter')->lockForUpdate()->first();
+            $settlement = Settlement::query()->lockForUpdate()->findOrFail($settlement->id);
+
+            if ($reason = $this->deletionBlocker($settlement)) {
+                throw new RuntimeException($reason);
+            }
+
+            $number = $settlement->invoice_number;
+
+            if ($settlement->type === SettlementType::Collective) {
+                $settlement->items()->detach();
+            }
+
+            $end = $settlement->type === SettlementType::Invoice ? $settlement->endReading : null;
+            $settlement->delete();
+
+            if ($end && $end->source === ReadingSource::System
+                && ! Settlement::query()->where('end_reading_id', $end->id)->orWhere('start_reading_id', $end->id)->exists()) {
+                $end->delete();
+            }
+
+            // Nummer freigeben: nächste Rechnung erhält wieder diese Nummer.
+            $counter->update(['value' => (string) max(0, $number - 1)]);
+            Setting::forgetCache();
+        });
+    }
+
+    /**
      * Endstand der Periode = Anfangsstand der nächsten Periode.
      * Gibt es eine echte Ablesung genau am Periodenende, wird sie verwendet,
      * sonst wird der berechnete Stand als Systemablesung gespeichert.
