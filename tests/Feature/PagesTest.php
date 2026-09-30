@@ -370,3 +370,14 @@ it('marks a single month as invoiced outside the portal and back', function () {
     $page->assertSee('extern abgerechnet')->call('toggleExternal');
     expect($settlement->fresh()->is_invoiced)->toBeFalse();
 });
+
+it('links the settings through named routes so the app works in a subdirectory', function () {
+    // Absolute Pfade wie href="/settings/profile" führen unter https://ascomm.pl/em/ zu 404.
+    $views = collect(Illuminate\Support\Facades\File::allFiles(resource_path('views')))
+        ->filter(fn ($f) => preg_match('/(href|action)="\/[a-z]/', $f->getContents()));
+
+    expect($views->map->getRelativePathname()->values()->all())->toBe([]);
+
+    $this->actingAs($this->admin)->get('/settings/profile')->assertOk()->assertDontSee('Delete account');
+    $this->actingAs($this->admin)->get('/dashboard')->assertSee('$flux.appearance', false);
+});
