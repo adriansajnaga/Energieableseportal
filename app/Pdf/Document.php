@@ -19,8 +19,9 @@ class Document extends TCPDF
         $this->setCreator(config('app.name'));
         $this->setAuthor((string) Setting::get('landlord_name'));
         $this->setTitle($title);
-        $this->setMargins(15, 22, 15);
-        $this->setHeaderMargin(8);
+        // Wie im Altsystem: Logo 60 mm breit oben links, darunter eine Linie.
+        $this->setMargins(15, 27, 15);
+        $this->setHeaderMargin(5);
         $this->setFooterMargin(10);
         $this->setAutoPageBreak(true, 18);
         $this->setFont('helvetica', '', 10);
@@ -28,15 +29,21 @@ class Document extends TCPDF
 
     public function Header(): void
     {
-        $this->setFont('helvetica', 'B', 9);
-        $this->setTextColor(5, 150, 105);
-        $this->Cell(0, 5, config('app.name'), 0, 0, 'L');
-        $this->setFont('helvetica', '', 8);
-        $this->setTextColor(100, 100, 100);
-        $this->Cell(0, 5, (string) Setting::get('landlord_name'), 0, 1, 'R');
-        $this->setDrawColor(200, 200, 200);
-        $this->Line(15, $this->GetY() + 1, $this->getPageWidth() - 15, $this->GetY() + 1);
-        $this->setTextColor(0, 0, 0);
+        $logo = resource_path('pdf/logo.png');
+        $bottom = 18;
+
+        if (is_file($logo)) {
+            // RGB-PNG ohne Transparenz, damit TCPDF kein GD/Imagick braucht.
+            $this->Image($logo, 15, 5, 60, 0, 'PNG');
+            $bottom = $this->getImageRBY() + 1;
+        } else {
+            $this->setFont('helvetica', 'B', 12);
+            $this->Cell(0, 8, (string) Setting::get('landlord_name'), 0, 1, 'L');
+        }
+
+        $this->setDrawColor(0, 0, 0);
+        $this->setLineWidth(0.3);
+        $this->Line(15, $bottom, $this->getPageWidth() - 15, $bottom);
     }
 
     public function Footer(): void
