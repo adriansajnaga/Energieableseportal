@@ -20,7 +20,7 @@ class Settlement extends Model
         'start_reading_id', 'end_reading_id', 'sample_reading_id', 'starts_on', 'ends_on',
         'consumption_kwh', 'meter_factor', 'billed_kwh', 'base_price', 'price_factor', 'unit_price',
         'net_amount', 'vat_rate', 'vat_amount', 'gross_amount', 'is_invoiced', 'cancels_id',
-        'cancelled_at', 'emailed_at', 'created_by', 'legacy_id',
+        'cancelled_at', 'emailed_at', 'emailed_to', 'created_by', 'legacy_id',
     ];
 
     protected $attributes = [
@@ -156,6 +156,12 @@ class Settlement extends Model
 
         return Setting::get('invoice_prefix')
             .str_pad((string) $this->invoice_number, (int) Setting::get('invoice_digits'), '0', STR_PAD_LEFT);
+    }
+
+    /** Nur Belege mit Rechnungsnummer können per E-Mail verschickt werden. */
+    public function canBeEmailed(): bool
+    {
+        return $this->invoice_number !== null;
     }
 
     public function isCancelled(): bool

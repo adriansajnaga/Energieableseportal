@@ -3,12 +3,14 @@
 use App\Enums\ReadingSource;
 use App\Enums\ReadingStatus;
 use App\Enums\Role;
+use App\Mail\InvoiceMail;
 use App\Models\Meter;
 use App\Models\Settlement;
 use App\Models\Tenant;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Volt;
 
@@ -192,4 +194,37 @@ it('creates a collective invoice from the settlement page and renders its PDF', 
 
     $this->actingAs($this->admin)->get(route('settlements.index', ['monat' => $month]))
         ->assertOk()->assertSee($collective->formattedNumber());
+});
+
+it('shows a settlement summary and sends it to a chosen e-mail address', function () {
+    Mail::fake();
+    $settlement = Settlement::whereNotNull('invoice_number')->first();
+
+    Volt::actingAs($this->admin)->test('settlements.index', ['month' => $settlement->period->format('Y-m')])
+        ->call('showDetail', $settlement->id)
+        ->assertSet('emailTo', $settlement->tenant->email)
+        ->assertSee($settlement->formattedNumber())
+        ->set('emailTo', 'buchhaltung@example.com')
+        ->set('saveEmail', true)
+        ->call('sendDetail')
+        ->assertHasNoErrors()
+        ->assertSee('Versendet');
+
+    Mail::assertSent(InvoiceMail::class, fn ($mail) => $mail->hasTo('buchhaltung@example.com'));
+
+    expect($settlement->fresh())
+        ->emailed_to->toBe('buchhaltung@example.com')
+        ->emailed_at->not->toBeNull()
+        ->and($settlement->tenant->fresh()->email)->toBe('buchhaltung@example.com');
+});
+
+it('does not offer sending for a month without invoice number', function () {
+    $settlement = Settlement::first();
+    $settlement->update(['invoice_number' => null, 'is_invoiced' => false]);
+
+    Volt::actingAs($this->admin)->test('settlements.index')
+        ->call('showDetail', $settlement->id)
+        ->assertSee('Sammelrechnung')
+        ->call('sendDetail')
+        ->assertHasErrors();
 });

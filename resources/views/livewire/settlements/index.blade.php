@@ -2,15 +2,14 @@
 
 use App\Enums\SettlementType;
 use App\Livewire\Concerns\WithWorkingMonth;
-use App\Mail\InvoiceMail;
 use App\Models\Settlement;
 use App\Models\Tenant;
+use App\Services\InvoiceMailer;
 use App\Services\SettlementCandidate;
 use App\Services\SettlementService;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Mail;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -25,6 +24,55 @@ new #[Title('Abrechnung')] class extends Component {
 
     /** @var array<int, string> */
     public array $collectIds = [];
+
+    // Detailansicht mit Einzelversand
+    public ?int $detailId = null;
+
+    public string $emailTo = '';
+
+    public bool $saveEmail = false;
+
+    #[Computed]
+    public function detail(): ?Settlement
+    {
+        return $this->detailId
+            ? Settlement::with(['tenant', 'meter', 'startReading', 'endReading', 'cancels', 'items.meter'])->find($this->detailId)
+            : null;
+    }
+
+    public function showDetail(int $id): void
+    {
+        $this->detailId = $id;
+        unset($this->detail);
+        $this->emailTo = (string) ($this->detail?->emailed_to ?: $this->detail?->tenant->email);
+        $this->saveEmail = false;
+        $this->resetValidation();
+        Flux::modal('detail')->show();
+    }
+
+    public function sendDetail(InvoiceMailer $mailer): void
+    {
+        Gate::authorize('manage');
+        $this->validate(['emailTo' => ['required', 'email']]);
+
+        $settlement = $this->detail;
+
+        try {
+            $mailer->send($settlement, $this->emailTo);
+        } catch (Throwable $e) {
+            report($e);
+            $this->addError('emailTo', __('Versand fehlgeschlagen: :message', ['message' => $e->getMessage()]));
+
+            return;
+        }
+
+        if ($this->saveEmail) {
+            $settlement->tenant->update(['email' => $this->emailTo]);
+        }
+
+        unset($this->detail, $this->candidates, $this->collectives);
+        Flux::toast(__('Rechnung :number an :email versendet.', ['number' => $settlement->formattedNumber(), 'email' => $this->emailTo]), variant: 'success');
+    }
 
     #[Computed]
     public function candidates()
@@ -165,7 +213,7 @@ new #[Title('Abrechnung')] class extends Component {
             : __('Abrechnung storniert.'), variant: 'success');
     }
 
-    public function sendEmails(): void
+    public function sendEmails(InvoiceMailer $mailer): void
     {
         Gate::authorize('manage');
 
@@ -179,12 +227,20 @@ new #[Title('Abrechnung')] class extends Component {
             ->with('tenant')
             ->get();
 
+        $sent = 0;
+
         foreach ($settlements as $settlement) {
-            Mail::to($settlement->tenant->email)->queue(new InvoiceMail($settlement));
-            $settlement->update(['emailed_at' => now()]);
+            try {
+                $mailer->send($settlement, $settlement->tenant->email);
+                $sent++;
+            } catch (Throwable $e) {
+                report($e);
+                Flux::toast($settlement->formattedNumber().': '.$e->getMessage(), variant: 'danger');
+            }
         }
 
-        Flux::toast(__(':count Rechnungen werden per E-Mail versendet.', ['count' => $settlements->count()]), variant: 'success');
+        unset($this->candidates, $this->collectives);
+        Flux::toast(__(':count Rechnungen per E-Mail versendet.', ['count' => $sent]), variant: 'success');
     }
 
     public function badgeColor(string $status): string
@@ -240,18 +296,31 @@ new #[Title('Abrechnung')] class extends Component {
             @forelse ($this->candidates as $candidate)
                 @php($s = $candidate->settlement)
                 @php($inCollective = $s && ! $s->is_invoiced ? $s->activeCollective() : null)
+                @php($document = $inCollective ?? ($s?->is_invoiced ? $s : null))
                 <flux:table.row :key="$candidate->key()">
                     <flux:table.cell variant="strong">
                         {{ $candidate->meter->number }}
                         <div class="text-xs font-normal text-zinc-500">{{ $candidate->meter->location }} @if ($candidate->meter->factor > 1) · {{ __('Faktor') }} {{ $candidate->meter->factor }} @endif</div>
                     </flux:table.cell>
-                    <flux:table.cell>{{ $candidate->tenant->name }}</flux:table.cell>
+                    <flux:table.cell>
+                        @if ($s)
+                            <button type="button" wire:click="showDetail({{ ($document ?? $s)->id }})" class="text-start font-medium text-emerald-700 hover:underline dark:text-emerald-400">
+                                {{ $candidate->tenant->name }}
+                            </button>
+                        @else
+                            {{ $candidate->tenant->name }}
+                        @endif
+                    </flux:table.cell>
                     <flux:table.cell class="text-sm">
                         {{ $candidate->startReading?->read_on->format('d.m.') ?? '–' }} – {{ $candidate->endsOn->format('d.m.Y') }}
                     </flux:table.cell>
                     <flux:table.cell>
                         <flux:badge size="sm" :color="$this->badgeColor($candidate->status())">{{ $candidate->statusLabel() }}</flux:badge>
-                        @if ($s?->emailed_at) <flux:icon.envelope variant="micro" class="ms-1 inline text-emerald-600" /> @endif
+                        @if ($document?->emailed_at)
+                            <flux:tooltip :content="__('am :date an :email', ['date' => $document->emailed_at->format('d.m.Y H:i'), 'email' => $document->emailed_to ?? $candidate->tenant->email])">
+                                <flux:badge size="sm" color="green" icon="envelope">{{ __('Versendet') }}</flux:badge>
+                            </flux:tooltip>
+                        @endif
                         @if ($inCollective)
                             <flux:badge size="sm" color="sky">{{ __('Sammelrechnung') }} {{ $inCollective->formattedNumber() }}</flux:badge>
                         @elseif ($s && ! $s->is_invoiced)
@@ -299,9 +368,9 @@ new #[Title('Abrechnung')] class extends Component {
         <ul class="mt-2 space-y-1 text-sm">
             @foreach ($this->collectives as $c)
                 <li class="flex flex-wrap items-center gap-2">
-                    <flux:link :href="route('pdf.invoice', $c)" target="_blank" class="{{ $c->isCancelled() ? 'line-through' : '' }}">{{ $c->formattedNumber() }}</flux:link>
+                    <button type="button" wire:click="showDetail({{ $c->id }})" class="font-medium text-emerald-700 hover:underline dark:text-emerald-400 {{ $c->isCancelled() ? 'line-through' : '' }}">{{ $c->formattedNumber() }}</button>
                     <span>· {{ $c->tenant->name }} · {{ trans_choice(':count Position|:count Positionen', $c->items->count()) }} · {{ $c->starts_on->format('d.m.Y') }} – {{ $c->ends_on->format('d.m.Y') }} · {{ number_format($c->gross_amount, 2, ',', '.') }} €</span>
-                    @if ($c->emailed_at) <flux:icon.envelope variant="micro" class="text-emerald-600" /> @endif
+                    @if ($c->emailed_at) <flux:badge size="sm" color="green" icon="envelope">{{ __('Versendet') }}</flux:badge> @endif
                     @can('manage')
                         @unless ($c->isCancelled())
                             <flux:button size="xs" variant="ghost" icon="x-circle" wire:click="cancel({{ $c->id }})" wire:confirm="{{ __('Sammelrechnung stornieren? Die Monate können danach erneut abgerechnet werden.') }}" :tooltip="__('Stornieren')" />
@@ -316,7 +385,11 @@ new #[Title('Abrechnung')] class extends Component {
         <flux:heading class="mt-8">{{ __('Stornorechnungen') }}</flux:heading>
         <ul class="mt-2 text-sm">
             @foreach ($this->cancellations as $c)
-                <li><flux:link :href="route('pdf.invoice', $c)" target="_blank">{{ $c->formattedNumber() }}</flux:link> · {{ $c->tenant->name }} · {{ $c->meterNumbers() }} · {{ number_format($c->gross_amount, 2, ',', '.') }} €</li>
+                <li>
+                    <button type="button" wire:click="showDetail({{ $c->id }})" class="font-medium text-emerald-700 hover:underline dark:text-emerald-400">{{ $c->formattedNumber() }}</button>
+                    · {{ $c->tenant->name }} · {{ $c->meterNumbers() }} · {{ number_format($c->gross_amount, 2, ',', '.') }} €
+                    @if ($c->emailed_at) <flux:badge size="sm" color="green" icon="envelope">{{ __('Versendet') }}</flux:badge> @endif
+                </li>
             @endforeach
         </ul>
     @endif
@@ -332,6 +405,100 @@ new #[Title('Abrechnung')] class extends Component {
                 <flux:button variant="primary" wire:click="settleAll">{{ __('Abrechnen') }}</flux:button>
             </div>
         </div>
+    </flux:modal>
+
+    <flux:modal name="detail" class="w-full md:w-2xl">
+        @if ($d = $this->detail)
+            @php($money = fn ($v) => number_format((float) $v, 2, ',', '.').' €')
+            <div class="space-y-5">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <flux:heading size="lg">{{ $d->type->label() }} {{ $d->formattedNumber() }}</flux:heading>
+                        <flux:subheading>{{ $d->tenant->name }} · {{ __('Kundennr.') }} {{ $d->tenant->debtor_number }}</flux:subheading>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                        @if ($d->isCancelled()) <flux:badge color="red">{{ __('Storniert') }}</flux:badge> @endif
+                        @if (! $d->canBeEmailed())
+                            <flux:badge color="zinc">{{ $d->is_invoiced ? __('extern abgerechnet') : __('ohne Rechnung') }}</flux:badge>
+                        @endif
+                        @if ($d->emailed_at)
+                            <flux:badge color="green" icon="envelope">{{ __('Versendet am :date', ['date' => $d->emailed_at->format('d.m.Y H:i')]) }}</flux:badge>
+                        @endif
+                    </div>
+                </div>
+
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+                    <div><dt class="text-zinc-500">{{ __('Zeitraum') }}</dt><dd>{{ $d->starts_on->format('d.m.Y') }} – {{ $d->ends_on->format('d.m.Y') }}</dd></div>
+                    <div><dt class="text-zinc-500">{{ __('Zähler') }}</dt><dd>{{ $d->meterNumbers() }}</dd></div>
+                    <div><dt class="text-zinc-500">{{ __('Rechnungsdatum') }}</dt><dd>{{ $d->invoice_date?->format('d.m.Y') ?? '–' }}</dd></div>
+                    <div><dt class="text-zinc-500">{{ __('Verbrauch') }}</dt><dd>{{ number_format($d->billed_kwh, 0, ',', '.') }} kWh</dd></div>
+                </dl>
+
+                @if ($d->type === \App\Enums\SettlementType::Collective)
+                    <div class="max-h-56 overflow-y-auto rounded border border-zinc-200 text-sm dark:border-zinc-700">
+                        <table class="w-full">
+                            <thead class="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-800">
+                                <tr><th class="px-2 py-1 text-start">{{ __('Monat') }}</th><th class="px-2 py-1 text-start">{{ __('Zähler') }}</th><th class="px-2 py-1 text-end">kWh</th><th class="px-2 py-1 text-end">€/kWh</th><th class="px-2 py-1 text-end">{{ __('Netto') }}</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($d->items as $item)
+                                    <tr class="border-t border-zinc-100 dark:border-zinc-700">
+                                        <td class="px-2 py-1">{{ $item->period->format('m/Y') }}</td>
+                                        <td class="px-2 py-1">{{ $item->meter?->number }}</td>
+                                        <td class="px-2 py-1 text-end">{{ number_format($item->billed_kwh, 0, ',', '.') }}</td>
+                                        <td class="px-2 py-1 text-end">{{ number_format((float) $item->unit_price, 2, ',', '.') }}</td>
+                                        <td class="px-2 py-1 text-end">{{ $money($item->net_amount) }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @elseif ($d->type === \App\Enums\SettlementType::Invoice)
+                    <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+                        <div><dt class="text-zinc-500">{{ __('Stand alt') }}</dt><dd>{{ number_format((int) $d->startReading?->value, 0, ',', '.') }}</dd></div>
+                        <div><dt class="text-zinc-500">{{ __('Stand neu') }}</dt><dd>{{ $d->endReading ? number_format($d->endReading->value, 0, ',', '.') : '–' }}</dd></div>
+                        <div><dt class="text-zinc-500">{{ __('Zählerfaktor') }}</dt><dd>{{ $d->meter_factor }}</dd></div>
+                        <div><dt class="text-zinc-500">{{ __('Preis') }}</dt><dd>{{ number_format((float) $d->unit_price, 2, ',', '.') }} €/kWh</dd></div>
+                    </dl>
+                @endif
+
+                <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800">
+                    <div class="flex justify-between"><span>{{ __('Netto') }}</span><span>{{ $money($d->net_amount) }}</span></div>
+                    <div class="flex justify-between"><span>{{ __('USt. :rate %', ['rate' => (float) $d->vat_rate]) }}</span><span>{{ $money($d->vat_amount) }}</span></div>
+                    <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-semibold dark:border-zinc-700"><span>{{ __('Brutto') }}</span><span>{{ $money($d->gross_amount) }}</span></div>
+                </div>
+
+                <div class="flex flex-wrap items-end gap-3">
+                    @if ($d->canBeEmailed())
+                        <flux:button icon="document-text" :href="route('pdf.invoice', $d)" target="_blank">{{ __('PDF öffnen') }}</flux:button>
+                    @endif
+                </div>
+
+                @can('manage')
+                    @if ($d->canBeEmailed())
+                        <form wire:submit="sendDetail" class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                            <flux:input wire:model="emailTo" type="email" :label="__('Rechnung per E-Mail senden an')" required />
+                            @if ($emailTo !== (string) $d->tenant->email)
+                                <flux:checkbox wire:model="saveEmail" :label="__('Diese Adresse beim Mieter speichern')" />
+                            @endif
+                            @if ($d->emailed_at)
+                                <flux:text class="text-xs">{{ __('Bereits am :date an :email versendet.', ['date' => $d->emailed_at->format('d.m.Y H:i'), 'email' => $d->emailed_to]) }}</flux:text>
+                            @endif
+                            <div class="flex justify-end gap-2">
+                                <flux:modal.close><flux:button variant="ghost">{{ __('Schließen') }}</flux:button></flux:modal.close>
+                                <flux:button type="submit" variant="primary" icon="paper-airplane" wire:loading.attr="disabled">
+                                    {{ $d->emailed_at ? __('Erneut senden') : __('Senden') }}
+                                </flux:button>
+                            </div>
+                        </form>
+                    @elseif ($d->is_invoiced)
+                        <flux:callout icon="information-circle" :text="__('Diese Abrechnung wurde außerhalb des Portals in Rechnung gestellt (z. B. im Altsystem).')" />
+                    @else
+                        <flux:callout icon="information-circle" :text="__('Für diesen Monat gibt es noch keine Rechnung. Erstellen Sie eine Sammelrechnung, um ihn zu versenden.')" />
+                    @endif
+                @endcan
+            </div>
+        @endif
     </flux:modal>
 
     <flux:modal name="collect" class="md:w-2xl">

@@ -353,7 +353,7 @@ class SettlementService
     {
         return Settlement::create([
             ...collect($settlement->getAttributes())->except([
-                'id', 'invoice_number', 'invoice_date', 'cancelled_at', 'emailed_at',
+                'id', 'invoice_number', 'invoice_date', 'cancelled_at', 'emailed_at', 'emailed_to',
                 'created_at', 'updated_at', 'legacy_id', 'created_by',
             ])->all(),
             'type' => SettlementType::Cancellation,

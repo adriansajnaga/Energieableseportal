@@ -74,6 +74,7 @@ create table `collective_items` (`id` bigint unsigned not null auto_increment pr
 alter table `collective_items` add constraint `collective_items_collective_id_foreign` foreign key (`collective_id`) references `settlements` (`id`) on delete cascade  ;
 alter table `collective_items` add constraint `collective_items_settlement_id_foreign` foreign key (`settlement_id`) references `settlements` (`id`) on delete cascade  ;
 alter table `collective_items` add unique `collective_items_collective_id_settlement_id_unique`(`collective_id`, `settlement_id`)  ;
+alter table `settlements` add `emailed_to` varchar(255) null after `emailed_at`  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -81,4 +82,5 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000002_create_jobs_table', 1),
 ('2026_09_29_000001_add_role_fields_to_users_table', 1),
 ('2026_09_29_000002_create_energy_tables', 1),
-('2026_09_30_000001_add_collective_invoices', 1);
+('2026_09_30_000001_add_collective_invoices', 1),
+('2026_10_01_000001_add_emailed_to_to_settlements', 1);
