@@ -173,3 +173,15 @@ it('creates an administrator from the command line', function () {
 
     expect(User::where('username', 'adrian')->first())->isAdmin()->toBeTrue();
 });
+
+it('creates an administrator without questions and prints a generated password', function () {
+    $this->artisan('energie:create-admin', ['--username' => 'chef', '--email' => 'chef@example.com', '--name' => 'Chef'])
+        ->expectsOutputToContain('Passwort: ')
+        ->assertSuccessful();
+
+    expect(User::where('username', 'chef')->first())->isAdmin()->toBeTrue();
+
+    // Zweiter Lauf (z. B. Cron jede Minute) ändert nichts.
+    $this->artisan('energie:create-admin', ['--username' => 'chef', '--email' => 'chef@example.com'])->assertFailed();
+    expect(User::where('username', 'chef')->count())->toBe(1);
+});
