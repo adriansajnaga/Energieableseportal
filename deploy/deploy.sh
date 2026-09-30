@@ -14,8 +14,8 @@ REQUIRED_EXT="bcmath ctype curl dom fileinfo filter hash mbstring openssl pdo_my
 PHP=""
 FALLBACK=""
 for candidate in \
-    /opt/cpanel/ea-php84/root/usr/bin/php /opt/cpanel/ea-php83/root/usr/bin/php /opt/cpanel/ea-php82/root/usr/bin/php \
-    /opt/alt/php84/usr/bin/php /opt/alt/php83/usr/bin/php /opt/alt/php82/usr/bin/php \
+    /opt/cpanel/ea-php85/root/usr/bin/php /opt/cpanel/ea-php84/root/usr/bin/php /opt/cpanel/ea-php83/root/usr/bin/php /opt/cpanel/ea-php82/root/usr/bin/php \
+    /opt/alt/php85/usr/bin/php /opt/alt/php84/usr/bin/php /opt/alt/php83/usr/bin/php /opt/alt/php82/usr/bin/php \
     /usr/local/bin/php /usr/bin/php "$(command -v php 2>/dev/null || true)"; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     "$candidate" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' 2>/dev/null || continue
