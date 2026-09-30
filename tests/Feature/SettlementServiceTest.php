@@ -12,6 +12,7 @@ use App\Services\MeterService;
 use App\Services\ReadingService;
 use App\Services\SettlementCandidate;
 use App\Services\SettlementService;
+use App\Services\TenantService;
 use Carbon\CarbonImmutable;
 
 beforeEach(function () {
@@ -219,4 +220,31 @@ it('refuses to collect settlements of different tenants or already invoiced ones
 
     expect(fn () => $this->service->collect(Settlement::where('type', 'invoice')->get(), null))
         ->toThrow(RuntimeException::class);
+});
+
+it('stops listing a tenant after the end of the tenancy', function () {
+    app(TenantService::class)->setActiveUntil($this->tenant, CarbonImmutable::parse('2024-06-30'));
+
+    // Juni wird noch voll abgerechnet, Juli nicht mehr.
+    expect($this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole()->endsOn->toDateString())->toBe('2024-07-01')
+        ->and($this->service->candidates(CarbonImmutable::parse('2024-07-01')))->toHaveCount(0)
+        ->and($this->meter->fresh()->tenant_id)->toBeNull()
+        ->and($this->tenant->fresh()->is_active)->toBeFalse();
+
+    // Enddatum entfernen stellt die Zuordnung wieder her.
+    app(TenantService::class)->setActiveUntil($this->tenant->fresh(), null);
+    expect($this->service->candidates(CarbonImmutable::parse('2024-07-01')))->toHaveCount(1)
+        ->and($this->meter->fresh()->tenant_id)->toBe($this->tenant->id)
+        ->and($this->tenant->fresh()->is_active)->toBeTrue();
+});
+
+it('settles only the days until a move-out in the middle of the month', function () {
+    app(TenantService::class)->setActiveUntil($this->tenant, CarbonImmutable::parse('2024-06-15'));
+    reading($this->meter, 1080, '2024-06-16');
+
+    $candidate = $this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole();
+    expect($candidate->endsOn->toDateString())->toBe('2024-06-16');
+
+    $settlement = $this->service->settle($candidate, $candidate->defaultSample(), null, true, null);
+    expect($settlement->consumption_kwh)->toBe(80);
 });

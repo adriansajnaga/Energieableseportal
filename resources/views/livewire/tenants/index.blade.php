@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Tenant;
+use App\Services\TenantService;
+use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
@@ -32,6 +34,7 @@ new #[Title('Mieter')] class extends Component {
     public bool $send_invoices_by_email = false;
     public bool $is_active = true;
     public string $active_from = '';
+    public string $active_until = '';
 
     public function updatedSearch(): void
     {
@@ -73,11 +76,12 @@ new #[Title('Mieter')] class extends Component {
             'send_invoices_by_email' => $tenant->send_invoices_by_email,
             'is_active' => $tenant->is_active,
             'active_from' => $tenant->active_from?->toDateString() ?? '',
+            'active_until' => $tenant->active_until?->toDateString() ?? '',
         ]);
         Flux::modal('tenant-form')->show();
     }
 
-    public function save(): void
+    public function save(TenantService $service): void
     {
         Gate::authorize('manage');
 
@@ -93,16 +97,28 @@ new #[Title('Mieter')] class extends Component {
             'send_invoices_by_email' => ['boolean'],
             'is_active' => ['boolean'],
             'active_from' => ['nullable', 'date'],
+            'active_until' => ['nullable', 'date', 'after_or_equal:active_from'],
         ]);
 
         $data = array_map(fn ($v) => $v === '' ? null : $v, $data);
+        $until = $data['active_until'] ? CarbonImmutable::parse($data['active_until']) : null;
+        unset($data['active_until']);
+
+        // Deaktivieren ohne Enddatum beendet das Mietverhältnis heute (wie im Altsystem: Zähler werden frei).
+        if (! $data['is_active'] && ! $until && $this->editingId && Tenant::find($this->editingId)?->assignments()->whereNull('ends_on')->exists()) {
+            $until = CarbonImmutable::today();
+        }
 
         $tenant = Tenant::updateOrCreate(['id' => $this->editingId], $data);
 
-        // Wie im Altsystem: ein deaktivierter Mieter gibt seine Zähler frei.
-        if (! $tenant->is_active) {
-            $tenant->meters()->update(['tenant_id' => null]);
-            $tenant->assignments()->whereNull('ends_on')->update(['ends_on' => now()->toDateString()]);
+        if ($until?->toDateString() !== $tenant->active_until?->toDateString()) {
+            try {
+                $service->setActiveUntil($tenant, $until);
+            } catch (RuntimeException $e) {
+                $this->addError('active_until', $e->getMessage());
+
+                return;
+            }
         }
 
         Flux::modal('tenant-form')->close();
@@ -111,7 +127,7 @@ new #[Title('Mieter')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['editingId', 'name', 'debtor_number', 'street', 'zip', 'city', 'phone', 'email', 'price_factor', 'send_invoices_by_email', 'active_from']);
+        $this->reset(['editingId', 'name', 'debtor_number', 'street', 'zip', 'city', 'phone', 'email', 'price_factor', 'send_invoices_by_email', 'active_from', 'active_until']);
         $this->is_active = true;
         $this->resetValidation();
     }
@@ -161,6 +177,9 @@ new #[Title('Mieter')] class extends Component {
                     <flux:table.cell align="center">{{ $tenant->price_factor ? (float) $tenant->price_factor : __('Standard') }}</flux:table.cell>
                     <flux:table.cell align="center">
                         <flux:badge size="sm" :color="$tenant->is_active ? 'green' : 'zinc'">{{ $tenant->is_active ? __('Ja') : __('Nein') }}</flux:badge>
+                        @if ($tenant->active_until)
+                            <div class="mt-1 text-xs text-zinc-500">{{ __('bis :date', ['date' => $tenant->active_until->format('d.m.Y')]) }}</div>
+                        @endif
                     </flux:table.cell>
                     <flux:table.cell align="end">
                         @can('manage')
@@ -181,9 +200,10 @@ new #[Title('Mieter')] class extends Component {
             <flux:heading size="lg">{{ $editingId ? __('Mieter bearbeiten') : __('Mieter hinzufügen') }}</flux:heading>
 
             <flux:input wire:model="name" :label="__('Name')" required />
-            <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 sm:grid-cols-3">
                 <flux:input wire:model="debtor_number" :label="__('Kundennr. (Debitor)')" type="number" />
                 <flux:input wire:model="active_from" :label="__('Mieter seit')" type="date" />
+                <flux:input wire:model="active_until" :label="__('Mieter bis')" type="date" :description="__('Letzter Tag. Danach erscheint der Mieter nicht mehr in der Abrechnung.')" />
             </div>
             <flux:input wire:model="street" :label="__('Straße')" />
             <div class="grid gap-4 sm:grid-cols-3">

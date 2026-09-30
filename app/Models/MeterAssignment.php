@@ -32,7 +32,7 @@ class MeterAssignment extends Model
     /** Zuordnungen, die sich mit dem Zeitraum [from, to) überschneiden. */
     public function scopeOverlapping(Builder $query, CarbonInterface $from, CarbonInterface $to): void
     {
-        $query->where('starts_on', '<', $to->toDateString())
-            ->where(fn ($q) => $q->whereNull('ends_on')->orWhere('ends_on', '>', $from->toDateString()));
+        $query->whereDate('starts_on', '<', $to->toDateString())
+            ->where(fn ($q) => $q->whereNull('ends_on')->orWhereDate('ends_on', '>', $from->toDateString()));
     }
 }

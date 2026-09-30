@@ -14,7 +14,7 @@ class Tenant extends Model
 
     protected $fillable = [
         'name', 'debtor_number', 'street', 'zip', 'city', 'phone', 'email',
-        'price_factor', 'send_invoices_by_email', 'is_active', 'active_from', 'legacy_id',
+        'price_factor', 'send_invoices_by_email', 'is_active', 'active_from', 'active_until', 'legacy_id',
     ];
 
     protected function casts(): array
@@ -24,6 +24,7 @@ class Tenant extends Model
             'send_invoices_by_email' => 'boolean',
             'is_active' => 'boolean',
             'active_from' => 'date',
+            'active_until' => 'date',
         ];
     }
 

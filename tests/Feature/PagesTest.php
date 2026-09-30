@@ -228,3 +228,23 @@ it('does not offer sending for a month without invoice number', function () {
         ->call('sendDetail')
         ->assertHasErrors();
 });
+
+it('saves the end of a tenancy from the tenant form', function () {
+    $tenant = Tenant::whereHas('meters')->first();
+
+    Volt::actingAs($this->admin)->test('tenants.index')
+        ->call('edit', $tenant->id)
+        ->set('active_until', now()->subMonthNoOverflow()->endOfMonth()->toDateString())
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($tenant->fresh()->active_until->toDateString())->toBe(now()->subMonthNoOverflow()->endOfMonth()->toDateString())
+        ->and($tenant->fresh()->is_active)->toBeFalse()
+        ->and($tenant->meters()->count())->toBe(0);
+
+    Volt::actingAs($this->admin)->test('tenants.index')
+        ->call('edit', $tenant->id)
+        ->set('active_until', '2000-01-01')
+        ->call('save')
+        ->assertHasErrors('active_until');
+});
