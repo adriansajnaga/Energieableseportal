@@ -1,7 +1,4 @@
 ---
-# Wdrożenie przez cPanel -> Git Version Control -> "Deploy HEAD Commit".
-# Cała logika jest w deploy/deploy.sh (sam znajduje PHP i Composera).
-# Log: /home/iascomm/Energieableseportal/storage/logs/deploy.log
 deployment:
   tasks:
     - export APP=/home/iascomm/Energieableseportal
