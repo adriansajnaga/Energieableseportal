@@ -15,6 +15,7 @@ REQUIRED_EXT="bcmath ctype curl dom fileinfo filter hash mbstring openssl pdo_my
 PHP=""
 FALLBACK=""
 for candidate in \
+    /usr/local/bin/php85 /usr/local/bin/php84 /usr/local/bin/php83 /usr/local/bin/php82 \
     /usr/local/bin/ea-php85 /usr/local/bin/ea-php84 /usr/local/bin/ea-php83 /usr/local/bin/ea-php82 \
     /opt/cpanel/ea-php85/root/usr/bin/php /opt/cpanel/ea-php84/root/usr/bin/php /opt/cpanel/ea-php83/root/usr/bin/php /opt/cpanel/ea-php82/root/usr/bin/php \
     /opt/alt/php85/usr/bin/php /opt/alt/php84/usr/bin/php /opt/alt/php83/usr/bin/php /opt/alt/php82/usr/bin/php \
