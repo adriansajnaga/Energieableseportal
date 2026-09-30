@@ -9,23 +9,33 @@ WEB="${WEB:-$HOME/public_html/em}"
 log() { echo "[deploy $(date '+%H:%M:%S')] $*"; }
 fail() { echo "[deploy] FEHLER: $*" >&2; exit 1; }
 
-# --- PHP finden -------------------------------------------------------------
+# --- PHP finden: bevorzugt eine Version >= 8.2 mit allen Erweiterungen ------
+REQUIRED_EXT="bcmath ctype curl dom fileinfo filter hash mbstring openssl pdo_mysql session tokenizer xml"
 PHP=""
+FALLBACK=""
 for candidate in \
     /opt/cpanel/ea-php84/root/usr/bin/php /opt/cpanel/ea-php83/root/usr/bin/php /opt/cpanel/ea-php82/root/usr/bin/php \
     /opt/alt/php84/usr/bin/php /opt/alt/php83/usr/bin/php /opt/alt/php82/usr/bin/php \
     /usr/local/bin/php /usr/bin/php "$(command -v php 2>/dev/null || true)"; do
-    if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' 2>/dev/null; then
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    "$candidate" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' 2>/dev/null || continue
+    FALLBACK="${FALLBACK:-$candidate}"
+    ok=1
+    for ext in $REQUIRED_EXT; do
+        "$candidate" -r "exit(extension_loaded('$ext') ? 0 : 1);" || { ok=0; break; }
+    done
+    if [ "$ok" = 1 ]; then
         PHP="$candidate"
         break
     fi
 done
+PHP="${PHP:-$FALLBACK}"
 [ -n "$PHP" ] || fail "Kein PHP >= 8.2 gefunden. Im cPanel unter 'MultiPHP Manager' PHP 8.3/8.4 aktivieren."
 log "PHP: $PHP ($("$PHP" -r 'echo PHP_VERSION;'))"
 
 # --- PHP-Erweiterungen prüfen -----------------------------------------------
 missing=""
-for ext in bcmath ctype curl dom fileinfo filter hash mbstring openssl pdo_mysql session tokenizer xml; do
+for ext in $REQUIRED_EXT; do
     "$PHP" -r "exit(extension_loaded('$ext') ? 0 : 1);" || missing="$missing $ext"
 done
 [ -z "$missing" ] || fail "PHP-Erweiterungen fehlen:$missing. Beim Hoster aktivieren lassen (z. B. ea-php82-php-fileinfo)."
