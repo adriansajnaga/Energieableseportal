@@ -7,6 +7,7 @@ use App\Models\Tenant;
 use App\Services\InvoiceMailer;
 use App\Services\SettlementCandidate;
 use App\Services\SettlementService;
+use App\Support\MailSettings;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -32,6 +33,10 @@ new #[Title('Abrechnung')] class extends Component {
 
     public bool $saveEmail = false;
 
+    public string $emailSubject = '';
+
+    public string $emailBody = '';
+
     #[Computed]
     public function detail(): ?Settlement
     {
@@ -46,6 +51,8 @@ new #[Title('Abrechnung')] class extends Component {
         unset($this->detail);
         $this->emailTo = (string) ($this->detail?->emailed_to ?: $this->detail?->tenant->email);
         $this->saveEmail = false;
+        $this->emailSubject = $this->detail?->canBeEmailed() ? MailSettings::subject($this->detail) : '';
+        $this->emailBody = $this->detail?->canBeEmailed() ? MailSettings::body($this->detail) : '';
         $this->resetValidation();
         Flux::modal('detail')->show();
     }
@@ -53,12 +60,16 @@ new #[Title('Abrechnung')] class extends Component {
     public function sendDetail(InvoiceMailer $mailer): void
     {
         Gate::authorize('manage');
-        $this->validate(['emailTo' => ['required', 'email']]);
+        $this->validate([
+            'emailTo' => ['required', 'email'],
+            'emailSubject' => ['required', 'string', 'max:255'],
+            'emailBody' => ['required', 'string', 'max:5000'],
+        ]);
 
         $settlement = $this->detail;
 
         try {
-            $mailer->send($settlement, $this->emailTo);
+            $mailer->send($settlement, $this->emailTo, $this->emailSubject, $this->emailBody);
         } catch (Throwable $e) {
             report($e);
             $this->addError('emailTo', __('Versand fehlgeschlagen: :message', ['message' => $e->getMessage()]));
@@ -478,6 +489,9 @@ new #[Title('Abrechnung')] class extends Component {
                     @if ($d->canBeEmailed())
                         <form wire:submit="sendDetail" class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
                             <flux:input wire:model="emailTo" type="email" :label="__('Rechnung per E-Mail senden an')" required />
+                            <flux:input wire:model="emailSubject" :label="__('Betreff')" required />
+                            <flux:textarea wire:model="emailBody" :label="__('Text')" rows="7" required />
+                            <flux:text class="text-xs">{{ __('Die Rechnung wird als PDF angehängt. Die Vorlage ändern Sie unter Einstellungen.') }}</flux:text>
                             @if ($emailTo !== (string) $d->tenant->email)
                                 <flux:checkbox wire:model="saveEmail" :label="__('Diese Adresse beim Mieter speichern')" />
                             @endif

@@ -1,29 +1,22 @@
 <x-mail::message>
-# Ihre Stromabrechnung {{ $settlement->period->format('m/Y') }}
+@foreach ($paragraphs as $paragraph)
+{!! nl2br(e($paragraph)) !!}
 
-Guten Tag {{ $settlement->tenant->name }},
-
-anbei erhalten Sie die Stromverbrauchsabrechnung für den Zeitraum vom {{ $settlement->starts_on->format('d.m.Y') }} bis {{ $settlement->ends_on->format('d.m.Y') }}.
+@endforeach
 
 <x-mail::table>
 | | |
 |:--|--:|
 | Rechnungsnummer | {{ $settlement->formattedNumber() }} |
+| Zeitraum | {{ $settlement->starts_on->format('d.m.Y') }} – {{ $settlement->ends_on->format('d.m.Y') }} |
 | Zähler | {{ $settlement->meterNumbers() }} |
 | Verbrauch | {{ number_format($settlement->billed_kwh, 0, ',', '.') }} kWh |
 | Betrag brutto | {{ number_format((float) $settlement->gross_amount, 2, ',', '.') }} € |
 </x-mail::table>
 
 @if ($settlement->meter)
-Ihren Zählerstand können Sie jederzeit über den QR-Code am Zähler melden:
-
 <x-mail::button :url="$settlement->meter->tenantUrl()">
 Zählerstand melden
 </x-mail::button>
-@else
-Ihre Zählerstände können Sie jederzeit über den QR-Code am jeweiligen Zähler melden.
 @endif
-
-Mit freundlichen Grüßen<br>
-{{ $landlord }}
 </x-mail::message>

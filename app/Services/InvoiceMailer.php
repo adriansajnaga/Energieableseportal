@@ -13,13 +13,13 @@ use RuntimeException;
  */
 class InvoiceMailer
 {
-    public function send(Settlement $settlement, string $email): void
+    public function send(Settlement $settlement, string $email, ?string $subject = null, ?string $body = null): void
     {
         if (! $settlement->canBeEmailed()) {
             throw new RuntimeException(__('Diese Abrechnung hat keine Rechnungsnummer und kann nicht versendet werden.'));
         }
 
-        Mail::to($email)->sendNow(new InvoiceMail($settlement));
+        Mail::to($email)->sendNow(new InvoiceMail($settlement, $subject, $body));
 
         $settlement->update(['emailed_at' => now(), 'emailed_to' => $email]);
     }

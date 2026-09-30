@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\MailSettings;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -27,6 +28,9 @@ class AppServiceProvider extends ServiceProvider
 
         // Abrechnungen, Preise und Rechnungen ansehen: Verwaltung und Lesezugriff, nicht der Hausmeister.
         Gate::define('view-finance', fn (User $user) => in_array($user->role, [Role::Admin, Role::Viewer], true));
+
+        // SMTP-Zugang aus den Einstellungen der Verwaltung.
+        MailSettings::apply();
 
         // Ablesungen erfassen: Verwaltung und Hausmeister.
         Gate::define('record-readings', fn (User $user) => in_array($user->role, [Role::Admin, Role::Caretaker], true));

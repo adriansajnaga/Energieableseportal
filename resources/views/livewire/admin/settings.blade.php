@@ -1,7 +1,10 @@
 <?php
 
 use App\Models\Setting;
+use App\Support\MailSettings;
 use Flux\Flux;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -9,11 +12,20 @@ new #[Title('Einstellungen')] class extends Component {
     /** @var array<string, string> */
     public array $values = [];
 
+    // Neues SMTP-Passwort; leer = unverändert
+    public string $mailPassword = '';
+
+    public string $testEmail = '';
+
     public function mount(): void
     {
         foreach (array_keys(Setting::DEFAULTS) as $key) {
             $this->values[$key] = (string) Setting::get($key);
         }
+
+        // Das gespeicherte Passwort wird nie an den Browser geschickt.
+        $this->values['mail_password'] = '';
+        $this->testEmail = (string) Auth::user()->email;
     }
 
     public function save(): void
@@ -34,14 +46,49 @@ new #[Title('Einstellungen')] class extends Component {
             'values.caretaker_email' => ['nullable', 'email'],
             'values.datev_revenue_account' => ['nullable', 'string', 'max:10'],
             'values.datev_tax_key' => ['nullable', 'string', 'max:5'],
+            'values.mail_host' => ['nullable', 'string', 'max:255'],
+            'values.mail_port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'values.mail_encryption' => ['required', 'in:ssl,tls,none'],
+            'values.mail_username' => ['nullable', 'string', 'max:255'],
+            'values.mail_from_address' => ['nullable', 'email'],
+            'values.mail_from_name' => ['nullable', 'string', 'max:255'],
+            'values.mail_invoice_subject' => ['required', 'string', 'max:255'],
+            'values.mail_invoice_body' => ['required', 'string', 'max:5000'],
+            'mailPassword' => ['nullable', 'string', 'max:255'],
         ]);
 
         // Der Rechnungszähler wird nur über die Abrechnung fortgeschrieben.
-        foreach (collect($this->values)->except('invoice_counter') as $key => $value) {
+        foreach (collect($this->values)->except(['invoice_counter', 'mail_password']) as $key => $value) {
             Setting::put($key, $value);
         }
 
+        if ($this->mailPassword !== '') {
+            MailSettings::storePassword($this->mailPassword);
+            $this->mailPassword = '';
+        }
+
+        MailSettings::apply();
+
         Flux::toast(__('Einstellungen gespeichert.'), variant: 'success');
+    }
+
+    public function sendTestMail(): void
+    {
+        $this->validate(['testEmail' => ['required', 'email']]);
+        MailSettings::apply();
+
+        try {
+            Mail::raw(__('Test-E-Mail aus dem Energieableseportal. Der E-Mail-Versand funktioniert.'), function ($message) {
+                $message->to($this->testEmail)->subject(__('Test-E-Mail'));
+            });
+        } catch (Throwable $e) {
+            report($e);
+            $this->addError('testEmail', __('Versand fehlgeschlagen: :message', ['message' => $e->getMessage()]));
+
+            return;
+        }
+
+        Flux::toast(__('Test-E-Mail an :email versendet.', ['email' => $this->testEmail]), variant: 'success');
     }
 }; ?>
 
@@ -89,6 +136,36 @@ new #[Title('Einstellungen')] class extends Component {
             </div>
         </flux:fieldset>
 
+        <flux:fieldset>
+            <flux:legend>{{ __('E-Mail-Versand (SMTP)') }}</flux:legend>
+            <flux:text class="mb-4">{{ __('Leer lassen, um die Werte aus der .env zu verwenden. Beim Hoster webd.pl als Host den Servernamen angeben (z. B. mn04.webd.pl), da das Zertifikat auf *.webd.pl ausgestellt ist.') }}</flux:text>
+            <div class="grid gap-4 sm:grid-cols-3">
+                <flux:input wire:model="values.mail_host" :label="__('SMTP-Server')" placeholder="mn04.webd.pl" class="sm:col-span-2" />
+                <flux:input wire:model="values.mail_port" :label="__('Port')" type="number" />
+                <flux:select wire:model="values.mail_encryption" :label="__('Verschlüsselung')">
+                    <flux:select.option value="ssl">SSL (465)</flux:select.option>
+                    <flux:select.option value="tls">STARTTLS (587)</flux:select.option>
+                    <flux:select.option value="none">{{ __('keine') }}</flux:select.option>
+                </flux:select>
+                <flux:input wire:model="values.mail_username" :label="__('Benutzername')" autocomplete="off" />
+                <flux:input wire:model="mailPassword" :label="__('Passwort')" type="password" autocomplete="new-password" :placeholder="\App\Models\Setting::get('mail_password') ? '••••••••' : ''" :description="__('Leer lassen = unverändert')" />
+                <flux:input wire:model="values.mail_from_address" :label="__('Absender-Adresse')" type="email" class="sm:col-span-2" />
+                <flux:input wire:model="values.mail_from_name" :label="__('Absender-Name')" />
+            </div>
+        </flux:fieldset>
+
+        <flux:fieldset>
+            <flux:legend>{{ __('Vorlage Rechnungs-E-Mail') }}</flux:legend>
+            <flux:input wire:model="values.mail_invoice_subject" :label="__('Betreff')" />
+            <flux:textarea wire:model="values.mail_invoice_body" :label="__('Text')" rows="8" class="mt-4" />
+            <flux:text class="mt-2 text-xs">{{ __('Platzhalter') }}: {{ implode(', ', \App\Support\MailSettings::PLACEHOLDERS) }}. {{ __('Die Rechnung wird als PDF angehängt.') }}</flux:text>
+        </flux:fieldset>
+
         <flux:button type="submit" variant="primary">{{ __('Speichern') }}</flux:button>
+    </form>
+
+    <form wire:submit="sendTestMail" class="mt-8 flex flex-wrap items-end gap-3 border-t border-zinc-200 pt-6 dark:border-zinc-700">
+        <flux:input wire:model="testEmail" type="email" :label="__('Test-E-Mail senden an')" class="max-w-sm" />
+        <flux:button type="submit" icon="paper-airplane">{{ __('Test-E-Mail senden') }}</flux:button>
     </form>
 </div>

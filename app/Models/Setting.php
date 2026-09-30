@@ -33,6 +33,16 @@ class Setting extends Model
         'caretaker_email' => '',
         'datev_revenue_account' => '8400',
         'datev_tax_key' => '',
+        // E-Mail-Versand (überschreibt MAIL_* aus der .env, sobald ein Host eingetragen ist)
+        'mail_host' => '',
+        'mail_port' => '465',
+        'mail_encryption' => 'ssl',
+        'mail_username' => '',
+        'mail_password' => '',
+        'mail_from_address' => '',
+        'mail_from_name' => '',
+        'mail_invoice_subject' => 'Stromabrechnung {monat} – Rechnung {rechnungsnummer}',
+        'mail_invoice_body' => "Guten Tag {mieter},\n\nanbei erhalten Sie die Stromverbrauchsabrechnung für den Zeitraum {zeitraum}.\nRechnung {rechnungsnummer} über {betrag_brutto} (brutto).\n\nMit freundlichen Grüßen\n{vermieter}",
     ];
 
     public static function get(string $key, mixed $default = null): mixed

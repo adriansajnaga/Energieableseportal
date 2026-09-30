@@ -2,9 +2,9 @@
 
 namespace App\Mail;
 
-use App\Models\Setting;
 use App\Models\Settlement;
 use App\Pdf\PdfFactory;
+use App\Support\MailSettings;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Attachment;
@@ -17,20 +17,30 @@ class InvoiceMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public Settlement $settlement) {}
+    public string $subjectText;
+
+    public string $bodyText;
+
+    /**
+     * Betreff und Text kommen aus der Vorlage in den Einstellungen,
+     * können beim Einzelversand aber überschrieben werden.
+     */
+    public function __construct(public Settlement $settlement, ?string $subjectText = null, ?string $bodyText = null)
+    {
+        $this->subjectText = $subjectText ?: MailSettings::subject($settlement);
+        $this->bodyText = $bodyText ?: MailSettings::body($settlement);
+    }
 
     public function envelope(): Envelope
     {
-        return new Envelope(
-            subject: 'Stromabrechnung '.$this->settlement->period->format('m/Y').' – Rechnung '.$this->settlement->formattedNumber(),
-        );
+        return new Envelope(subject: $this->subjectText);
     }
 
     public function content(): Content
     {
         return new Content(markdown: 'mail.invoice', with: [
             'settlement' => $this->settlement,
-            'landlord' => Setting::get('landlord_name'),
+            'paragraphs' => preg_split('/\R{2,}/', trim($this->bodyText)),
         ]);
     }
 

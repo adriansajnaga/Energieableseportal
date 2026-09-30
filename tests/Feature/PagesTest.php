@@ -5,9 +5,11 @@ use App\Enums\ReadingStatus;
 use App\Enums\Role;
 use App\Mail\InvoiceMail;
 use App\Models\Meter;
+use App\Models\Setting;
 use App\Models\Settlement;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Support\MailSettings;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
@@ -247,4 +249,48 @@ it('saves the end of a tenancy from the tenant form', function () {
         ->set('active_until', '2000-01-01')
         ->call('save')
         ->assertHasErrors('active_until');
+});
+
+it('stores SMTP settings with an encrypted password and uses them for sending', function () {
+    Volt::actingAs($this->admin)->test('admin.settings')
+        ->set('values.mail_host', 'mn04.webd.pl')
+        ->set('values.mail_port', '465')
+        ->set('values.mail_encryption', 'ssl')
+        ->set('values.mail_username', 'noreply@example.com')
+        ->set('mailPassword', 'geheim-smtp')
+        ->set('values.mail_from_address', 'noreply@example.com')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('mailPassword', '');
+
+    $stored = Setting::find('mail_password')->value;
+    expect($stored)->not->toContain('geheim-smtp')
+        ->and(MailSettings::password())->toBe('geheim-smtp')
+        ->and(config('mail.default'))->toBe('smtp')
+        ->and(config('mail.mailers.smtp.host'))->toBe('mn04.webd.pl')
+        ->and(config('mail.mailers.smtp.scheme'))->toBe('smtps');
+
+    // Speichern ohne neues Passwort lässt das alte bestehen.
+    Volt::actingAs($this->admin)->test('admin.settings')->call('save');
+    expect(MailSettings::password())->toBe('geheim-smtp');
+});
+
+it('fills subject and text from the template and sends the edited version', function () {
+    Mail::fake();
+    Setting::put('mail_invoice_subject', 'Rechnung {rechnungsnummer} für {mieter}');
+    $settlement = Settlement::whereNotNull('invoice_number')->first();
+
+    $component = Volt::actingAs($this->admin)->test('settlements.index', ['month' => $settlement->period->format('Y-m')])
+        ->call('showDetail', $settlement->id)
+        ->assertSet('emailSubject', 'Rechnung '.$settlement->formattedNumber().' für '.$settlement->tenant->name);
+
+    expect($component->get('emailBody'))->toContain($settlement->tenant->name)->toContain($settlement->formattedNumber());
+
+    $component->set('emailSubject', 'Ihre Rechnung')
+        ->set('emailBody', "Hallo,\n\nbitte beachten Sie die Anlage.")
+        ->call('sendDetail')
+        ->assertHasNoErrors();
+
+    Mail::assertSent(InvoiceMail::class, fn ($mail) => $mail->subjectText === 'Ihre Rechnung'
+        && str_contains($mail->bodyText, 'bitte beachten Sie die Anlage.'));
 });
