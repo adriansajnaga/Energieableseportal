@@ -52,7 +52,8 @@ new #[Title('Dashboard')] class extends Component {
             'data' => [
                 'labels' => $totals->keys()->map(fn ($m) => \Carbon\Carbon::createFromFormat('!Y-m', $m)->locale(app()->getLocale())->isoFormat('MMM YY'))->values(),
                 'datasets' => [
-                    ['label' => __('Verbrauch (kWh)'), 'data' => $totals->pluck('kwh')->values(), 'backgroundColor' => '#10b981', 'borderRadius' => 4, 'yAxisID' => 'y'],
+                    ['label' => __('Laut Versorgerrechnung (kWh)'), 'data' => $totals->pluck('supplier')->values(), 'backgroundColor' => '#a3a3a3', 'borderRadius' => 4, 'yAxisID' => 'y'],
+                    ['label' => __('An Mieter abgerechnet (kWh)'), 'data' => $totals->pluck('kwh')->values(), 'backgroundColor' => '#10b981', 'borderRadius' => 4, 'yAxisID' => 'y'],
                     ['label' => __('Entgelt netto (€)'), 'data' => $totals->pluck('net')->values(), 'type' => 'line', 'borderColor' => '#6366f1', 'backgroundColor' => '#6366f1', 'tension' => 0.3, 'yAxisID' => 'y1'],
                 ],
             ],

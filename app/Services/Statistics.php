@@ -26,12 +26,19 @@ class Statistics
             ->whereBetween('period', [$from->toDateString(), $to->toDateString()])
             ->get(['period', 'billed_kwh', 'net_amount']);
 
-        return $this->months($from, $to)->mapWithKeys(function (CarbonImmutable $month) use ($settlements) {
+        // Verbrauch laut Versorgerrechnungen der aktiven Hauptzähler.
+        $supplier = ElectricityPrice::query()
+            ->whereBetween('month', [$from->toDateString(), $to->toDateString()])
+            ->whereIn('meter_id', Meter::query()->main()->active()->select('id'))
+            ->get(['month', 'consumption_kwh']);
+
+        return $this->months($from, $to)->mapWithKeys(function (CarbonImmutable $month) use ($settlements, $supplier) {
             $rows = $settlements->filter(fn ($s) => $s->period->isSameMonth($month));
 
             return [$month->format('Y-m') => [
                 'kwh' => (int) $rows->sum('billed_kwh'),
                 'net' => round((float) $rows->sum('net_amount'), 2),
+                'supplier' => (int) round((float) $supplier->filter(fn ($p) => $p->month->isSameMonth($month))->sum('consumption_kwh')),
             ]];
         });
     }
