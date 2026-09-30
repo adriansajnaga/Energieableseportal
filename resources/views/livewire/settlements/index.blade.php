@@ -57,6 +57,24 @@ new #[Title('Abrechnung')] class extends Component {
         Flux::modal('detail')->show();
     }
 
+    /** Einzelne Monatsabrechnung ohne Rechnungsnummer als extern abgerechnet markieren bzw. zurücksetzen. */
+    public function toggleExternal(): void
+    {
+        Gate::authorize('manage');
+        $settlement = $this->detail;
+
+        if (! $settlement || $settlement->type !== SettlementType::Invoice || $settlement->invoice_number || $settlement->activeCollective()) {
+            return;
+        }
+
+        $settlement->update(['is_invoiced' => ! $settlement->is_invoiced]);
+        unset($this->detail, $this->candidates, $this->openCount, $this->openTenantsCount);
+
+        Flux::toast($settlement->is_invoiced
+            ? __('Als extern abgerechnet markiert.')
+            : __('Markierung aufgehoben. Die Abrechnung kann wieder in eine Sammelrechnung.'), variant: 'success');
+    }
+
     public function deleteDetail(SettlementService $service): void
     {
         Gate::authorize('manage');
@@ -327,7 +345,7 @@ new #[Title('Abrechnung')] class extends Component {
             {{ __('Sammelrechnungen erstellen (:count)', ['count' => $this->openTenantsCount]) }}
         </flux:button>
         <flux:dropdown>
-            <flux:button icon="ellipsis-horizontal" :tooltip="__('Weitere Aktionen')" />
+            <flux:button icon="ellipsis-horizontal" icon-trailing="chevron-down">{{ __('Weitere Aktionen') }}</flux:button>
             <flux:menu>
                 <flux:menu.item icon="check-badge" wire:click="markExternal" :disabled="$this->openCount === 0"
                     wire:confirm="{{ __('Alle :count noch nicht in Rechnung gestellten Abrechnungen bis einschließlich :month als extern abgerechnet markieren? Sie erscheinen danach nicht mehr bei den Sammelrechnungen.', ['count' => $this->openCount, 'month' => $this->period()->format('m/Y')]) }}">
@@ -398,6 +416,8 @@ new #[Title('Abrechnung')] class extends Component {
                             <flux:badge size="sm" color="sky">{{ __('Sammelrechnung') }} {{ $inCollective->formattedNumber() }}</flux:badge>
                         @elseif ($s && ! $s->is_invoiced)
                             <flux:badge size="sm" color="zinc">{{ __('ohne Rechnung') }}</flux:badge>
+                        @elseif ($s && ! $s->invoice_number)
+                            <flux:badge size="sm" color="zinc" icon="check-badge">{{ __('extern abgerechnet') }}</flux:badge>
                         @endif
                     </flux:table.cell>
                     <flux:table.cell align="end">{{ $s ? number_format($s->billed_kwh, 0, ',', '.') : '' }}</flux:table.cell>
@@ -580,10 +600,18 @@ new #[Title('Abrechnung')] class extends Component {
                                 </flux:button>
                             </div>
                         </form>
+                    @elseif ($d->activeCollective())
+                        <flux:callout icon="information-circle" :text="__('Diese Abrechnung steht in der Sammelrechnung :number.', ['number' => $d->activeCollective()->formattedNumber()])" />
                     @elseif ($d->is_invoiced)
                         <flux:callout icon="information-circle" :text="__('Diese Abrechnung wurde außerhalb des Portals in Rechnung gestellt (z. B. im Altsystem).')" />
+                        <div class="flex justify-end">
+                            <flux:button size="sm" variant="ghost" icon="arrow-uturn-left" wire:click="toggleExternal">{{ __('Markierung aufheben') }}</flux:button>
+                        </div>
                     @else
                         <flux:callout icon="information-circle" :text="__('Für diesen Monat gibt es noch keine Rechnung. Erstellen Sie eine Sammelrechnung, um ihn zu versenden.')" />
+                        <div class="flex justify-end">
+                            <flux:button size="sm" icon="check-badge" wire:click="toggleExternal">{{ __('Als extern abgerechnet markieren') }}</flux:button>
+                        </div>
                     @endif
                 @endcan
             </div>

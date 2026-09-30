@@ -356,3 +356,17 @@ it('shows the reading status without login only with the secret link', function 
     auth()->logout();
     $this->get('/status/'.$token)->assertNotFound();
 });
+
+it('marks a single month as invoiced outside the portal and back', function () {
+    $settlement = Settlement::first();
+    $settlement->update(['invoice_number' => null, 'is_invoiced' => false]);
+
+    $page = Volt::actingAs($this->admin)->test('settlements.index', ['month' => $settlement->period->format('Y-m')])
+        ->call('showDetail', $settlement->id)
+        ->assertSee('Als extern abgerechnet markieren')
+        ->call('toggleExternal');
+
+    expect($settlement->fresh()->is_invoiced)->toBeTrue();
+    $page->assertSee('extern abgerechnet')->call('toggleExternal');
+    expect($settlement->fresh()->is_invoiced)->toBeFalse();
+});
