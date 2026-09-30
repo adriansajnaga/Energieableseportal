@@ -1,0 +1,11 @@
+---
+# Wdrożenie przez cPanel -> Git Version Control -> "Deploy HEAD Commit".
+# Repozytorium jest sklonowane bezpośrednio do katalogu aplikacji, domena wskazuje na .../public.
+# PHP i Composer: ścieżki dla cPanel EasyApache. Wersję (ea-php84) dopasuj do MultiPHP Managera.
+deployment:
+  tasks:
+    - export APP=/home/iascomm/energieableseportal
+    - export PHP=/opt/cpanel/ea-php84/root/usr/bin/php
+    - cd $APP && $PHP /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction
+    - cd $APP && $PHP artisan migrate --force
+    - cd $APP && $PHP artisan optimize
