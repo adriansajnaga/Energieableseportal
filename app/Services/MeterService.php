@@ -23,7 +23,8 @@ class MeterService
     public function create(array $attributes, ?int $initialValue, ?CarbonInterface $startsOn, ?User $user): Meter
     {
         return DB::transaction(function () use ($attributes, $initialValue, $startsOn, $user) {
-            $meter = Meter::create($attributes);
+            // refresh(): Standardwerte der Datenbank (z. B. factor) ins Modell laden.
+            $meter = Meter::create($attributes)->refresh();
 
             if ($meter->tenant_id) {
                 MeterAssignment::create([
@@ -68,6 +69,7 @@ class MeterService
     public function replace(Meter $old, string $newNumber, CarbonInterface $date, int $finalValue, int $initialValue, ?User $user): Meter
     {
         return DB::transaction(function () use ($old, $newNumber, $date, $finalValue, $initialValue, $user) {
+            $old->refresh();
             $this->readings->record($old, $finalValue, $date, ReadingSource::Admin, __('Zählerwechsel - Ausbau'), user: $user, isBase: true);
             $this->closeAssignment($old, $date);
 

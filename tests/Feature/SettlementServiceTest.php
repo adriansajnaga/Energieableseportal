@@ -309,3 +309,23 @@ it('leaves inactive or empty main meters out of the deviation chart', function (
     expect($stats->mainMeterComparison($from, $to)->pluck('meter.number')->all())->toContain('HZ-ALT')->not->toContain('HZ-LEER')
         ->and($stats->mainMeterComparison($from, $to, onlyActive: true)->pluck('meter.number')->all())->not->toContain('HZ-ALT')->not->toContain('HZ-LEER');
 });
+
+it('ignores inactive meters but settles a replaced meter until the replacement day', function () {
+    $this->meter->update(['is_active' => false]);
+    expect($this->service->candidates(CarbonImmutable::parse('2024-06-01')))->toHaveCount(0);
+
+    $this->meter->update(['is_active' => true]);
+    $new = app(MeterService::class)->replace($this->meter, 'Z-NEU', CarbonImmutable::parse('2024-06-15'), 1070, 0, null);
+
+    $numbers = $this->service->candidates(CarbonImmutable::parse('2024-06-01'))->map(fn ($c) => $c->meter->number)->sort()->values()->all();
+    expect($numbers)->toBe(['Z-1', 'Z-NEU'])
+        ->and($this->service->candidates(CarbonImmutable::parse('2024-07-01'))->map(fn ($c) => $c->meter->number)->all())->toBe(['Z-NEU']);
+});
+
+it('marks externally invoiced settlements without self-referencing update', function () {
+    reading($this->meter, 1100, '2024-06-21');
+    $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), false, null);
+
+    expect($this->service->markExternallyInvoiced(CarbonImmutable::parse('2024-06-01')))->toBe(1)
+        ->and(Settlement::query()->openForCollection()->count())->toBe(0);
+});

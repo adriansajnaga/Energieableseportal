@@ -36,6 +36,10 @@ class SettlementService
             ->with(['meter', 'tenant'])
             ->get()
             ->filter(fn (MeterAssignment $a) => $a->meter && $a->tenant)
+            // Inaktive Zähler nicht mehr abrechnen – außer sie wurden erst in diesem Monat ausgebaut
+            // (Zählerwechsel: Abrechnung bis zum Ausbautag).
+            ->filter(fn (MeterAssignment $a) => $a->meter->is_active
+                || ($a->meter->removed_on && $a->meter->removed_on->greaterThanOrEqualTo($period)))
             ->sortBy(fn (MeterAssignment $a) => [$a->tenant->name, $a->meter->number]);
 
         $meterIds = $assignments->pluck('meter_id')->unique();
@@ -345,9 +349,13 @@ class SettlementService
      */
     public function markExternallyInvoiced(CarbonInterface $upTo): int
     {
-        return Settlement::query()->openForCollection()
+        // Erst die IDs lesen, dann aktualisieren: MySQL erlaubt kein UPDATE auf "settlements"
+        // mit einer Unterabfrage auf dieselbe Tabelle (Fehler 1093).
+        $ids = Settlement::query()->openForCollection()
             ->whereDate('period', '<=', CarbonImmutable::parse($upTo)->startOfMonth()->toDateString())
-            ->update(['is_invoiced' => true]);
+            ->pluck('id');
+
+        return $ids->chunk(500)->sum(fn ($chunk) => Settlement::query()->whereKey($chunk)->update(['is_invoiced' => true]));
     }
 
     /** Storniert eine Sammelrechnung; die enthaltenen Monate können danach neu abgerechnet werden. */
