@@ -5,6 +5,7 @@ use App\Support\MailSettings;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -58,7 +59,7 @@ new #[Title('Einstellungen')] class extends Component {
         ]);
 
         // Der Rechnungszähler wird nur über die Abrechnung fortgeschrieben.
-        foreach (collect($this->values)->except(['invoice_counter', 'mail_password']) as $key => $value) {
+        foreach (collect($this->values)->except(['invoice_counter', 'mail_password', 'status_token']) as $key => $value) {
             Setting::put($key, $value);
         }
 
@@ -70,6 +71,20 @@ new #[Title('Einstellungen')] class extends Component {
         MailSettings::apply();
 
         Flux::toast(__('Einstellungen gespeichert.'), variant: 'success');
+    }
+
+    public function generateStatusLink(): void
+    {
+        Setting::put('status_token', Str::random(40));
+        $this->values['status_token'] = (string) Setting::get('status_token');
+        Flux::toast(__('Neuer Link erzeugt. Der bisherige Link funktioniert nicht mehr.'), variant: 'success');
+    }
+
+    public function disableStatusLink(): void
+    {
+        Setting::put('status_token', '');
+        $this->values['status_token'] = '';
+        Flux::toast(__('Link deaktiviert.'));
     }
 
     public function sendTestMail(): void
@@ -163,6 +178,23 @@ new #[Title('Einstellungen')] class extends Component {
 
         <flux:button type="submit" variant="primary">{{ __('Speichern') }}</flux:button>
     </form>
+
+    <div class="mt-8 border-t border-zinc-200 pt-6 dark:border-zinc-700">
+        <flux:heading>{{ __('Ablesestatus ohne Anmeldung') }}</flux:heading>
+        <flux:text class="mt-1">{{ __('Geheimer Link für den Hausmeister: zeigt die noch abzulesenden Zähler mit Mieter und Telefon, ohne Login. Nur an vertrauenswürdige Personen weitergeben.') }}</flux:text>
+        @if ($values['status_token'])
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+                <flux:input readonly :value="route('public.status', $values['status_token'])" class="min-w-0 flex-1" onclick="this.select()" />
+                <flux:button size="sm" icon="arrow-top-right-on-square" :href="route('public.status', $values['status_token'])" target="_blank" />
+            </div>
+            <div class="mt-3 flex gap-2">
+                <flux:button size="sm" icon="arrow-path" wire:click="generateStatusLink" wire:confirm="{{ __('Neuen Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.') }}">{{ __('Neuen Link erzeugen') }}</flux:button>
+                <flux:button size="sm" variant="ghost" icon="no-symbol" wire:click="disableStatusLink">{{ __('Link deaktivieren') }}</flux:button>
+            </div>
+        @else
+            <flux:button size="sm" class="mt-3" icon="link" wire:click="generateStatusLink">{{ __('Link erzeugen') }}</flux:button>
+        @endif
+    </div>
 
     <form wire:submit="sendTestMail" class="mt-8 flex flex-wrap items-end gap-3 border-t border-zinc-200 pt-6 dark:border-zinc-700">
         <flux:input wire:model="testEmail" type="email" :label="__('Test-E-Mail senden an')" class="max-w-sm" />

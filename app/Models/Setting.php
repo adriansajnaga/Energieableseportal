@@ -31,6 +31,8 @@ class Setting extends Model
         'landlord_vat_id' => 'DE353468347',
         'site_address' => "Wrangelstraße\n24539 Neumünster",
         'caretaker_email' => '',
+        // Geheimer Link zum Ablesestatus ohne Anmeldung; leer = deaktiviert
+        'status_token' => '',
         'datev_revenue_account' => '8400',
         'datev_tax_key' => '',
         // E-Mail-Versand (überschreibt MAIL_* aus der .env, sobald ein Host eingetragen ist)

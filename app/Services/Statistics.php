@@ -41,7 +41,7 @@ class Statistics
      *
      * @return Collection<int, array{meter: Meter, months: Collection<string, array{supplier: float, submeters: int, difference: float, percent: ?float}>}>
      */
-    public function mainMeterComparison(CarbonInterface $from, CarbonInterface $to): Collection
+    public function mainMeterComparison(CarbonInterface $from, CarbonInterface $to, bool $onlyActive = false): Collection
     {
         $prices = ElectricityPrice::query()
             ->whereBetween('month', [$from->toDateString(), $to->toDateString()])
@@ -53,7 +53,7 @@ class Statistics
             ->get(['main_meter_id', 'period', 'billed_kwh'])
             ->groupBy('main_meter_id');
 
-        return Meter::query()->main()->orderBy('number')->get()->map(function (Meter $meter) use ($from, $to, $prices, $settlements) {
+        return Meter::query()->main()->when($onlyActive, fn ($q) => $q->active())->orderBy('number')->get()->map(function (Meter $meter) use ($from, $to, $prices, $settlements) {
             $months = $this->months($from, $to)->mapWithKeys(function (CarbonImmutable $month) use ($meter, $prices, $settlements) {
                 $supplier = (float) ($prices->get($meter->id)?->first(fn ($p) => $p->month->isSameMonth($month))?->consumption_kwh ?? 0);
                 $sub = (int) $settlements->get($meter->id, collect())->filter(fn ($s) => $s->period->isSameMonth($month))->sum('billed_kwh');
@@ -68,7 +68,10 @@ class Statistics
             });
 
             return ['meter' => $meter, 'months' => $months];
-        });
+        })
+            // Hauptzähler ohne Rechnung und ohne abgerechnete Unterzähler im Zeitraum weglassen.
+            ->filter(fn (array $row) => $row['months']->contains(fn (array $m) => $m['supplier'] > 0 || $m['submeters'] > 0))
+            ->values();
     }
 
     /**

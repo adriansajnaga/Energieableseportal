@@ -63,7 +63,7 @@ new #[Title('Dashboard')] class extends Component {
     #[Computed]
     public function lossChart(): array
     {
-        $comparison = app(Statistics::class)->mainMeterComparison($this->period()->subMonthsNoOverflow(11), $this->period());
+        $comparison = app(Statistics::class)->mainMeterComparison($this->period()->subMonthsNoOverflow(11), $this->period(), onlyActive: true);
         $colors = ['#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
         $labels = collect();
 

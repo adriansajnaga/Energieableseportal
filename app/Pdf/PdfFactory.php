@@ -8,6 +8,7 @@ use App\Models\Meter;
 use App\Models\Setting;
 use App\Models\Settlement;
 use App\Models\Tenant;
+use App\Services\SettlementService;
 use App\Services\Statistics;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -122,6 +123,28 @@ class PdfFactory
         $pdf = new Document(__('Bericht Hauptzähler'));
         $pdf->AddPage();
         $pdf->view('pdf.main-meters', compact('month', 'meters'));
+
+        return $pdf;
+    }
+
+    /** Übersicht aller Zähler/Mieter eines Monats mit Abrechnungsstatus (zur Kontrolle). */
+    public function monthOverview(CarbonImmutable $month): Document
+    {
+        $candidates = app(SettlementService::class)->candidates($month);
+        $candidates->pluck('settlement')->filter()
+            ->each(fn (Settlement $s) => $s->loadMissing(['startReading', 'endReading', 'collectives']));
+
+        $collectives = Settlement::query()
+            ->where('type', SettlementType::Collective)
+            ->whereNull('cancelled_at')
+            ->whereDate('period', $month->toDateString())
+            ->with('tenant')
+            ->orderBy('invoice_number')
+            ->get();
+
+        $pdf = new Document(__('Abrechnungsübersicht'), 'L');
+        $pdf->AddPage();
+        $pdf->view('pdf.month-overview', compact('month', 'candidates', 'collectives'));
 
         return $pdf;
     }

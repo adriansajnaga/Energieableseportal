@@ -341,6 +341,7 @@ new #[Title('Abrechnung')] class extends Component {
             </flux:menu>
         </flux:dropdown>
         <flux:button icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:button>
+        <flux:button icon="table-cells" :href="route('pdf.overview', $month)" target="_blank">{{ __('Alle Abrechnungen (PDF)') }}</flux:button>
         <flux:dropdown>
             <flux:button icon="arrow-down-tray" icon-trailing="chevron-down">{{ __('Export') }}</flux:button>
             <flux:menu>
@@ -350,6 +351,7 @@ new #[Title('Abrechnung')] class extends Component {
         </flux:dropdown>
         @else
             <flux:button icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:button>
+            <flux:button icon="table-cells" :href="route('pdf.overview', $month)" target="_blank">{{ __('Alle Abrechnungen (PDF)') }}</flux:button>
         @endcan
     </div>
 

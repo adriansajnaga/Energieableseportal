@@ -13,6 +13,7 @@ use App\Services\MeterService;
 use App\Services\ReadingService;
 use App\Services\SettlementCandidate;
 use App\Services\SettlementService;
+use App\Services\Statistics;
 use App\Services\TenantService;
 use Carbon\CarbonImmutable;
 
@@ -293,4 +294,18 @@ it('deletes a collective invoice and releases its months', function () {
     expect(Settlement::find($collective->id))->toBeNull()
         ->and(Settlement::query()->openForCollection()->count())->toBe(1)
         ->and($this->service->collect(Settlement::query()->openForCollection()->get(), null)->invoice_number)->toBe(1);
+});
+
+it('leaves inactive or empty main meters out of the deviation chart', function () {
+    $old = Meter::factory()->main()->create(['number' => 'HZ-ALT', 'is_active' => false]);
+    Meter::factory()->main()->create(['number' => 'HZ-LEER']);
+    ElectricityPrice::create(['meter_id' => $old->id, 'month' => '2024-06-01', 'net_price' => '0.25', 'consumption_kwh' => 100]);
+
+    $stats = app(Statistics::class);
+    $from = CarbonImmutable::parse('2024-06-01');
+    $to = CarbonImmutable::parse('2024-07-01');
+
+    // Bericht: alle Hauptzähler mit Daten (auch inaktive), Dashboard: nur aktive.
+    expect($stats->mainMeterComparison($from, $to)->pluck('meter.number')->all())->toContain('HZ-ALT')->not->toContain('HZ-LEER')
+        ->and($stats->mainMeterComparison($from, $to, onlyActive: true)->pluck('meter.number')->all())->not->toContain('HZ-ALT')->not->toContain('HZ-LEER');
 });

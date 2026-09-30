@@ -36,6 +36,13 @@ class PdfController extends Controller
         return $this->pdf->invoices($settlements)->inline('Rechnungen_'.$period->format('Y-m').'.pdf');
     }
 
+    public function overview(string $month): Response
+    {
+        Gate::authorize('view-finance');
+
+        return $this->pdf->monthOverview($this->month($month))->inline('Abrechnungen_'.$month.'.pdf');
+    }
+
     public function year(Meter $meter, Tenant $tenant, int $year): Response
     {
         Gate::authorize('view-finance');

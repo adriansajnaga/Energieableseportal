@@ -331,3 +331,28 @@ it('marks old settlements as invoiced outside the portal up to the chosen month'
     $csv = $this->actingAs($this->admin)->get(route('export.settlements', $cutoff->format('Y-m')))->streamedContent();
     expect($csv)->toContain('extern abgerechnet');
 });
+
+it('renders the monthly overview PDF with all settlements', function () {
+    $month = Settlement::first()->period->format('Y-m');
+    $response = $this->actingAs($this->admin)->get(route('pdf.overview', $month));
+
+    $response->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    $this->actingAs($this->caretaker)->get(route('pdf.overview', $month))->assertForbidden();
+});
+
+it('shows the reading status without login only with the secret link', function () {
+    $this->get('/status/anything')->assertNotFound();
+
+    Volt::actingAs($this->admin)->test('admin.settings')->call('generateStatusLink');
+    $token = Setting::get('status_token');
+    auth()->logout();
+
+    expect($token)->toHaveLength(40);
+    $meter = Meter::active()->first();
+    $this->get('/status/'.$token)->assertOk()->assertSee($meter->number)->assertSee($meter->tenantUrl(), false);
+    $this->get('/status/wrong-'.$token)->assertNotFound();
+
+    Volt::actingAs($this->admin)->test('admin.settings')->call('disableStatusLink');
+    auth()->logout();
+    $this->get('/status/'.$token)->assertNotFound();
+});

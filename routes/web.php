@@ -15,6 +15,11 @@ Volt::route('r/{token}', 'public.reading')
     ->middleware('throttle:30,1')
     ->name('public.reading');
 
+// Ablesestatus für den Hausmeister ohne Anmeldung über einen geheimen Link (Einstellungen).
+Volt::route('status/{token}', 'public.status')
+    ->middleware('throttle:30,1')
+    ->name('public.status');
+
 // Alte QR-Codes (reading.php?meter=<md5>) auf die neue Adresse umleiten.
 Route::get('reading.php', LegacyQrController::class)->name('legacy.reading');
 
@@ -38,6 +43,7 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('pdf')->name('pdf.')->controller(PdfController::class)->group(function () {
         Route::get('invoice/{settlement}', 'invoice')->name('invoice');
         Route::get('invoices/{month}', 'invoices')->name('invoices');
+        Route::get('overview/{month}', 'overview')->name('overview');
         Route::get('year/{meter}/{tenant}/{year}', 'year')->name('year');
         Route::get('qr-list', 'qrList')->name('qr-list');
         Route::get('qr-labels', 'qrLabels')->name('qr-labels');
