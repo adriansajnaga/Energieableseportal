@@ -61,12 +61,23 @@ fi
 
 # --- Composer: eigene, aktuelle Kopie (System-Composer ist oft zu alt) -------
 COMPOSER="$APP/composer.phar"
-if [ ! -f "$COMPOSER" ]; then
+COMPOSER_URL="https://getcomposer.org/download/latest-2.x/composer.phar"
+if [ ! -s "$COMPOSER" ]; then
     log "Lade composer.phar herunter"
-    cd "$APP"
-    "$PHP" -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" || fail "Download von Composer fehlgeschlagen"
-    "$PHP" composer-setup.php --quiet --install-dir="$APP" --filename=composer.phar || fail "Composer-Installation fehlgeschlagen"
-    rm -f composer-setup.php
+    rm -f "$COMPOSER"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 2 -o "$COMPOSER" "$COMPOSER_URL" || log "  curl fehlgeschlagen"
+    fi
+    if [ ! -s "$COMPOSER" ] && command -v wget >/dev/null 2>&1; then
+        wget -q -O "$COMPOSER" "$COMPOSER_URL" || log "  wget fehlgeschlagen"
+    fi
+    if [ ! -s "$COMPOSER" ]; then
+        "$PHP" -r "exit(@copy('$COMPOSER_URL', '$COMPOSER') ? 0 : 1);" || log "  PHP-Download fehlgeschlagen (allow_url_fopen?)"
+    fi
+    if [ ! -s "$COMPOSER" ] || ! "$PHP" "$COMPOSER" --version --no-ansi >/dev/null 2>&1; then
+        rm -f "$COMPOSER"
+        fail "composer.phar konnte nicht heruntergeladen werden. Datei von $COMPOSER_URL manuell nach $COMPOSER hochladen."
+    fi
 else
     "$PHP" "$COMPOSER" self-update --2 --no-interaction --quiet || log "composer self-update fehlgeschlagen, verwende vorhandene Version"
 fi
