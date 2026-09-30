@@ -1,16 +1,9 @@
 ---
 # Wdrożenie przez cPanel -> Git Version Control -> "Deploy HEAD Commit".
-#   APP = repozytorium i aplikacja (niedostępne z internetu)
-#   WEB = katalog publiczny: kopia folderu public/ + index.php z deploy/public_html/
-# PHP i Composer: ścieżki dla cPanel EasyApache. Wersję (ea-php84) dopasuj do MultiPHP Managera.
+# Cała logika jest w deploy/deploy.sh (sam znajduje PHP i Composera).
+# Log: /home/iascomm/Energieableseportal/storage/logs/deploy.log
 deployment:
   tasks:
     - export APP=/home/iascomm/Energieableseportal
     - export WEB=/home/iascomm/public_html/em
-    - export PHP=/opt/cpanel/ea-php84/root/usr/bin/php
-    - cd $APP && $PHP /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction
-    - mkdir -p $WEB && rm -rf $WEB/build
-    - /bin/cp -R $APP/public/. $WEB/
-    - /bin/cp $APP/deploy/public_html/index.php $WEB/index.php
-    - cd $APP && $PHP artisan migrate --force
-    - cd $APP && $PHP artisan optimize
+    - /bin/bash $APP/deploy/deploy.sh > $APP/storage/logs/deploy.log 2>&1
