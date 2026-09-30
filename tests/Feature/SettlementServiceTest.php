@@ -6,6 +6,7 @@ use App\Enums\SettlementType;
 use App\Models\ElectricityPrice;
 use App\Models\Meter;
 use App\Models\Reading;
+use App\Models\Settlement;
 use App\Models\Tenant;
 use App\Services\MeterService;
 use App\Services\ReadingService;
@@ -151,4 +152,71 @@ it('settles all ready meters at once', function () {
     $result = $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), true, null);
 
     expect($result['settled'])->toBe(2)->and($result['errors'])->toBe([]);
+});
+
+it('collects several months and meters of one tenant into one invoice', function () {
+    $second = app(MeterService::class)->create(
+        ['number' => 'Z-2', 'parent_id' => $this->main->id, 'tenant_id' => $this->tenant->id, 'factor' => 60],
+        500,
+        CarbonImmutable::parse('2024-06-01'),
+        null,
+    );
+
+    reading($this->meter, 1100, '2024-06-21');
+    reading($second, 512, '2024-07-01');
+    $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), false, null);
+
+    reading($this->meter, 1300, '2024-07-31');
+    reading($second, 520, '2024-08-01');
+    $this->service->settleAll(CarbonImmutable::parse('2024-07-01'), false, null);
+
+    $open = Settlement::query()->openForCollection()->get();
+    expect($open)->toHaveCount(4)->and($open->whereNotNull('invoice_number'))->toHaveCount(0);
+
+    $collective = $this->service->collect($open, null);
+
+    // Summe der Monatsbeträge; USt auf die Gesamtsumme.
+    $net = $open->sum(fn ($s) => (float) $s->net_amount);
+    expect($collective->type)->toBe(SettlementType::Collective)
+        ->and($collective->invoice_number)->toBe(1)
+        ->and($collective->meter_id)->toBeNull()
+        ->and((float) $collective->net_amount)->toBe(round($net, 2))
+        ->and((string) $collective->vat_amount)->toBe(number_format(round($net * 0.19, 2), 2, '.', ''))
+        ->and($collective->items)->toHaveCount(4)
+        ->and($collective->starts_on->toDateString())->toBe('2024-06-01')
+        ->and($collective->ends_on->toDateString())->toBe('2024-08-01')
+        ->and(Settlement::query()->openForCollection()->count())->toBe(0)
+        ->and($open->first()->fresh()->invoiceLabel())->toBe('E-0001');
+
+    // Monat in einer Sammelrechnung kann nicht einzeln storniert werden.
+    expect(fn () => $this->service->cancel($open->last()->fresh(), null))->toThrow(RuntimeException::class);
+
+    // Storno der Sammelrechnung gibt die Monate wieder frei.
+    $cancellation = $this->service->cancel($collective, null);
+    expect($cancellation->invoice_number)->toBe(2)
+        ->and((string) $cancellation->gross_amount)->toBe(bcmul((string) $collective->gross_amount, '-1', 2))
+        ->and(Settlement::query()->openForCollection()->count())->toBe(4);
+
+    $again = $this->service->collect(Settlement::query()->openForCollection()->get(), null);
+    expect($again->invoice_number)->toBe(3);
+});
+
+it('refuses to collect settlements of different tenants or already invoiced ones', function () {
+    $other = Tenant::factory()->create();
+    $otherMeter = app(MeterService::class)->create(
+        ['number' => 'Z-9', 'parent_id' => $this->main->id, 'tenant_id' => $other->id], 100, CarbonImmutable::parse('2024-06-01'), null,
+    );
+    reading($this->meter, 1100, '2024-06-21');
+    reading($otherMeter, 150, '2024-06-21');
+    $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), false, null);
+
+    expect(fn () => $this->service->collect(Settlement::query()->openForCollection()->get(), null))
+        ->toThrow(RuntimeException::class);
+
+    // collectAll erstellt je Mieter eine Rechnung.
+    $result = $this->service->collectAll(CarbonImmutable::parse('2024-06-01'), null);
+    expect($result['created'])->toBe(2)->and(Settlement::where('type', 'collective')->count())->toBe(2);
+
+    expect(fn () => $this->service->collect(Settlement::where('type', 'invoice')->get(), null))
+        ->toThrow(RuntimeException::class);
 });

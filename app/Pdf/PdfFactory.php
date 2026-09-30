@@ -2,6 +2,7 @@
 
 namespace App\Pdf;
 
+use App\Enums\SettlementType;
 use App\Models\ElectricityPrice;
 use App\Models\Meter;
 use App\Models\Setting;
@@ -24,10 +25,26 @@ class PdfFactory
 
         foreach ($settlements as $settlement) {
             $pdf->AddPage();
-            $pdf->view('pdf.invoice', ['s' => $settlement] + $this->landlord());
 
-            // Hinweis zur digitalen Ablesung mit QR-Code des Zählers.
-            if ($settlement->meter->is_active && $pdf->GetY() < 215) {
+            // Sammelrechnung (oder deren Storno): Positionen je Zähler und Monat.
+            $collective = match (true) {
+                $settlement->type === SettlementType::Collective => $settlement,
+                $settlement->type === SettlementType::Cancellation && $settlement->cancels?->type === SettlementType::Collective => $settlement->cancels,
+                default => null,
+            };
+
+            if ($collective) {
+                $pdf->view('pdf.invoice-collective', [
+                    's' => $settlement,
+                    'items' => $collective->items()->with(['meter', 'startReading', 'endReading'])->get()->groupBy('meter_id'),
+                    'sign' => $settlement->type === SettlementType::Cancellation ? -1 : 1,
+                ] + $this->landlord());
+            } else {
+                $pdf->view('pdf.invoice', ['s' => $settlement] + $this->landlord());
+            }
+
+            // Hinweis zur digitalen Ablesung mit QR-Code des Zählers (nur bei genau einem Zähler).
+            if ($settlement->meter?->is_active && $pdf->GetY() < 215) {
                 $y = max($pdf->GetY() + 6, 200);
                 $pdf->setY($y);
                 $pdf->view('pdf.partials.qr-hint');

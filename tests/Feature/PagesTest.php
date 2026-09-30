@@ -166,3 +166,30 @@ it('writes changes to the activity log', function () {
 
     $this->assertDatabaseHas('activity_log', ['subject_type' => Tenant::class, 'subject_id' => $tenant->id, 'action' => 'updated', 'user_id' => $this->admin->id]);
 });
+
+it('creates a collective invoice from the settlement page and renders its PDF', function () {
+    // Zwei Monate eines Mieters ohne eigene Rechnung.
+    $items = Settlement::query()->orderBy('period')->take(2)->get();
+    $tenantId = $items->first()->tenant_id;
+    $items = Settlement::where('tenant_id', $tenantId)->orderBy('period')->take(3)->get();
+    Settlement::whereKey($items->pluck('id'))->update(['invoice_number' => null, 'invoice_date' => null, 'is_invoiced' => false]);
+
+    Volt::actingAs($this->admin)->test('settlements.index')
+        ->call('openCollect', $tenantId)
+        ->assertCount('collectIds', 3)
+        ->call('collect')
+        ->assertHasNoErrors();
+
+    $collective = Settlement::where('type', 'collective')->sole();
+    expect($collective->items)->toHaveCount(3)->and($collective->tenant_id)->toBe($tenantId);
+
+    $pdf = $this->actingAs($this->admin)->get(route('pdf.invoice', $collective));
+    $pdf->assertOk()->assertHeader('Content-Type', 'application/pdf');
+
+    $month = $collective->period->format('Y-m');
+    expect($this->actingAs($this->admin)->get(route('export.settlements', $month))->streamedContent())
+        ->toContain($collective->formattedNumber());
+
+    $this->actingAs($this->admin)->get(route('settlements.index', ['monat' => $month]))
+        ->assertOk()->assertSee($collective->formattedNumber());
+});

@@ -31,7 +31,7 @@
     </tr>
     @forelse ($settlements as $s)
         <tr>
-            <td align="center">{{ $s->formattedNumber() }}</td>
+            <td align="center">{{ $s->invoiceLabel() }}</td>
             <td align="center">{{ $s->starts_on->format('d.m.Y') }}</td>
             <td align="center">{{ $s->ends_on->format('d.m.Y') }}</td>
             <td align="center">{{ $kwh($s->startReading?->value) }}</td>

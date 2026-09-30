@@ -274,7 +274,7 @@ new class extends Component {
                         <flux:table.row :key="$settlement->id">
                             <flux:table.cell>{{ $settlement->period->format('m/Y') }}</flux:table.cell>
                             <flux:table.cell>
-                                <flux:link :href="route('pdf.invoice', $settlement)" target="_blank" class="{{ $settlement->isCancelled() ? 'line-through' : '' }}">{{ $settlement->formattedNumber() }}</flux:link>
+                                <flux:link :href="route('pdf.invoice', $settlement->activeCollective() ?? $settlement)" target="_blank" class="{{ $settlement->isCancelled() ? 'line-through' : '' }}">{{ $settlement->invoiceLabel() }}</flux:link>
                                 @if ($settlement->type === \App\Enums\SettlementType::Cancellation) <flux:badge size="sm" color="red">{{ __('Storno') }}</flux:badge> @endif
                             </flux:table.cell>
                             <flux:table.cell align="end">{{ number_format($settlement->billed_kwh, 0, ',', '.') }}</flux:table.cell>

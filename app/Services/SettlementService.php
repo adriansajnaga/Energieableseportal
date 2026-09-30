@@ -202,8 +202,18 @@ class SettlementService
      */
     public function cancel(Settlement $settlement, ?User $user): ?Settlement
     {
+        if ($settlement->type === SettlementType::Collective && ! $settlement->isCancelled()) {
+            return $this->cancelCollective($settlement, $user);
+        }
+
         if ($settlement->type !== SettlementType::Invoice || $settlement->isCancelled()) {
             throw new RuntimeException(__('Diese Abrechnung kann nicht storniert werden.'));
+        }
+
+        if ($collective = $settlement->activeCollective()) {
+            throw new RuntimeException(__('Die Abrechnung steht in der Sammelrechnung :number. Bitte zuerst diese stornieren.', [
+                'number' => $collective->formattedNumber(),
+            ]));
         }
 
         $hasFollowUp = Settlement::query()->effective()
@@ -220,22 +230,7 @@ class SettlementService
             $cancellation = null;
 
             if ($settlement->is_invoiced) {
-                $cancellation = Settlement::create([
-                    ...collect($settlement->getAttributes())->except([
-                        'id', 'invoice_number', 'invoice_date', 'cancelled_at', 'emailed_at',
-                        'created_at', 'updated_at', 'legacy_id', 'created_by',
-                    ])->all(),
-                    'type' => SettlementType::Cancellation,
-                    'invoice_number' => $this->nextInvoiceNumber(),
-                    'invoice_date' => now()->toDateString(),
-                    'cancels_id' => $settlement->id,
-                    'consumption_kwh' => -$settlement->consumption_kwh,
-                    'billed_kwh' => -$settlement->billed_kwh,
-                    'net_amount' => bcmul((string) $settlement->net_amount, '-1', 2),
-                    'vat_amount' => bcmul((string) $settlement->vat_amount, '-1', 2),
-                    'gross_amount' => bcmul((string) $settlement->gross_amount, '-1', 2),
-                    'created_by' => $user?->id,
-                ]);
+                $cancellation = $this->createCancellation($settlement, $user);
             }
 
             $end = $settlement->endReading;
@@ -249,6 +244,129 @@ class SettlementService
 
             return $cancellation;
         });
+    }
+
+    /**
+     * Fasst Monatsabrechnungen ohne eigene Rechnung zu einer Sammelrechnung zusammen.
+     * Erlaubt sind mehrere Monate und mehrere Zähler, aber nur ein Mieter.
+     *
+     * @param  Collection<int, Settlement>  $items
+     */
+    public function collect(Collection $items, ?User $user): Settlement
+    {
+        if ($items->isEmpty()) {
+            throw new RuntimeException(__('Bitte mindestens eine Abrechnung auswählen.'));
+        }
+
+        if ($items->pluck('tenant_id')->unique()->count() > 1) {
+            throw new RuntimeException(__('Eine Sammelrechnung kann nur Abrechnungen eines Mieters enthalten.'));
+        }
+
+        if ($items->map(fn (Settlement $s) => (string) $s->vat_rate)->unique()->count() > 1) {
+            throw new RuntimeException(__('Die Abrechnungen haben unterschiedliche Umsatzsteuersätze.'));
+        }
+
+        return DB::transaction(function () use ($items, $user) {
+            $ids = $items->pluck('id');
+
+            // Erneut prüfen und sperren, damit keine Abrechnung doppelt in Rechnung gestellt wird.
+            $items = Settlement::query()->whereKey($ids)->openForCollection()->lockForUpdate()->orderBy('period')->get();
+
+            if ($items->count() !== $ids->count()) {
+                throw new RuntimeException(__('Mindestens eine Abrechnung ist bereits abgerechnet oder storniert.'));
+            }
+
+            $netCents = $items->sum(fn (Settlement $s) => (int) bcmul((string) $s->net_amount, '100', 0));
+            $vatRate = (string) $items->first()->vat_rate;
+            $vatCents = (int) round(((float) bcmul((string) $netCents, $vatRate, 4)) / 100, 0, PHP_ROUND_HALF_UP);
+            $billed = (int) $items->sum('billed_kwh');
+            $meterIds = $items->pluck('meter_id')->unique();
+
+            $collective = Settlement::create([
+                'type' => SettlementType::Collective,
+                'invoice_number' => $this->nextInvoiceNumber(),
+                'invoice_date' => now()->toDateString(),
+                'period' => $items->max('period')->toDateString(),
+                'tenant_id' => $items->first()->tenant_id,
+                'meter_id' => $meterIds->count() === 1 ? $meterIds->first() : null,
+                'starts_on' => $items->min('starts_on')->toDateString(),
+                'ends_on' => $items->max('ends_on')->toDateString(),
+                'consumption_kwh' => (int) $items->sum('consumption_kwh'),
+                'meter_factor' => 1,
+                'billed_kwh' => $billed,
+                'base_price' => 0,
+                'price_factor' => 1,
+                'unit_price' => $billed > 0 ? round($netCents / 100 / $billed, 2) : 0,
+                'net_amount' => SettlementCalculation::cents($netCents),
+                'vat_rate' => $vatRate,
+                'vat_amount' => SettlementCalculation::cents($vatCents),
+                'gross_amount' => SettlementCalculation::cents($netCents + $vatCents),
+                'is_invoiced' => true,
+                'created_by' => $user?->id,
+            ]);
+
+            $collective->items()->attach($items->pluck('id'));
+
+            return $collective;
+        });
+    }
+
+    /**
+     * Legt für jeden Mieter mit offenen Monatsabrechnungen (bis einschließlich $upTo) eine Sammelrechnung an.
+     *
+     * @return array{created: int, errors: array<int, string>}
+     */
+    public function collectAll(CarbonInterface $upTo, ?User $user): array
+    {
+        $created = 0;
+        $errors = [];
+
+        $open = Settlement::query()->openForCollection()
+            ->whereDate('period', '<=', CarbonImmutable::parse($upTo)->startOfMonth()->toDateString())
+            ->with('tenant')
+            ->get()
+            ->groupBy('tenant_id');
+
+        foreach ($open as $items) {
+            try {
+                $this->collect($items, $user);
+                $created++;
+            } catch (RuntimeException $e) {
+                $errors[] = $items->first()->tenant->name.': '.$e->getMessage();
+            }
+        }
+
+        return ['created' => $created, 'errors' => $errors];
+    }
+
+    /** Storniert eine Sammelrechnung; die enthaltenen Monate können danach neu abgerechnet werden. */
+    private function cancelCollective(Settlement $collective, ?User $user): Settlement
+    {
+        return DB::transaction(function () use ($collective, $user) {
+            $collective->update(['cancelled_at' => now()]);
+
+            return $this->createCancellation($collective, $user);
+        });
+    }
+
+    private function createCancellation(Settlement $settlement, ?User $user): Settlement
+    {
+        return Settlement::create([
+            ...collect($settlement->getAttributes())->except([
+                'id', 'invoice_number', 'invoice_date', 'cancelled_at', 'emailed_at',
+                'created_at', 'updated_at', 'legacy_id', 'created_by',
+            ])->all(),
+            'type' => SettlementType::Cancellation,
+            'invoice_number' => $this->nextInvoiceNumber(),
+            'invoice_date' => now()->toDateString(),
+            'cancels_id' => $settlement->id,
+            'consumption_kwh' => -$settlement->consumption_kwh,
+            'billed_kwh' => -$settlement->billed_kwh,
+            'net_amount' => bcmul((string) $settlement->net_amount, '-1', 2),
+            'vat_amount' => bcmul((string) $settlement->vat_amount, '-1', 2),
+            'gross_amount' => bcmul((string) $settlement->gross_amount, '-1', 2),
+            'created_by' => $user?->id,
+        ]);
     }
 
     /**

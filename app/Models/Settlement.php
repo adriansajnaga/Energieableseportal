@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Settlement extends Model
@@ -83,6 +84,62 @@ class Settlement extends Model
     public function cancellation(): HasOne
     {
         return $this->hasOne(Settlement::class, 'cancels_id');
+    }
+
+    /** Monatsabrechnungen, die in einer Sammelrechnung stehen (nur bei type = collective). */
+    public function items(): BelongsToMany
+    {
+        return $this->belongsToMany(Settlement::class, 'collective_items', 'collective_id', 'settlement_id')
+            ->withTimestamps()
+            ->orderBy('period');
+    }
+
+    /** Sammelrechnungen, in denen diese Monatsabrechnung vorkommt (auch stornierte). */
+    public function collectives(): BelongsToMany
+    {
+        return $this->belongsToMany(Settlement::class, 'collective_items', 'settlement_id', 'collective_id')
+            ->withTimestamps();
+    }
+
+    public function activeCollective(): ?Settlement
+    {
+        return $this->collectives->first(fn (Settlement $c) => ! $c->isCancelled());
+    }
+
+    /** Rechnungsnummer der Abrechnung selbst oder der Sammelrechnung, in der sie steht. */
+    public function invoiceLabel(): string
+    {
+        if ($this->invoice_number) {
+            return $this->formattedNumber();
+        }
+
+        return $this->activeCollective()?->formattedNumber() ?? '---';
+    }
+
+    /** Zählernummer(n) des Belegs; bei Sammelrechnungen alle enthaltenen Zähler. */
+    public function meterNumbers(): string
+    {
+        $collective = $this->type === SettlementType::Cancellation ? $this->cancels : $this;
+
+        if ($collective?->type === SettlementType::Collective) {
+            return $collective->items()->with('meter')->get()->pluck('meter.number')->unique()->join(', ');
+        }
+
+        return (string) $this->meter?->number;
+    }
+
+    /** Rechnungsbelege mit Nummer (Einzel-, Sammel- und Stornorechnungen). */
+    public function scopeNumbered(Builder $query): void
+    {
+        $query->whereNotNull('invoice_number');
+    }
+
+    /** Monatsabrechnungen ohne eigene Rechnung, die noch in keiner gültigen Sammelrechnung stehen. */
+    public function scopeOpenForCollection(Builder $query): void
+    {
+        $query->effective()
+            ->where('is_invoiced', false)
+            ->whereDoesntHave('collectives', fn (Builder $q) => $q->whereNull('cancelled_at'));
     }
 
     /** Gültige (nicht stornierte) Abrechnungen. */

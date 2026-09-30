@@ -20,7 +20,7 @@ class ExportController extends Controller
             $s->period->format('m/Y'),
             $s->tenant->debtor_number,
             $s->tenant->name,
-            $s->meter->number,
+            $s->meterNumbers(),
             $s->starts_on->format('d.m.Y'),
             $s->ends_on->format('d.m.Y'),
             $s->billed_kwh,

@@ -9,16 +9,20 @@ anbei erhalten Sie die Stromverbrauchsabrechnung für den Zeitraum vom {{ $settl
 | | |
 |:--|--:|
 | Rechnungsnummer | {{ $settlement->formattedNumber() }} |
-| Zähler | {{ $settlement->meter->number }} |
+| Zähler | {{ $settlement->meterNumbers() }} |
 | Verbrauch | {{ number_format($settlement->billed_kwh, 0, ',', '.') }} kWh |
 | Betrag brutto | {{ number_format((float) $settlement->gross_amount, 2, ',', '.') }} € |
 </x-mail::table>
 
+@if ($settlement->meter)
 Ihren Zählerstand können Sie jederzeit über den QR-Code am Zähler melden:
 
 <x-mail::button :url="$settlement->meter->tenantUrl()">
 Zählerstand melden
 </x-mail::button>
+@else
+Ihre Zählerstände können Sie jederzeit über den QR-Code am jeweiligen Zähler melden.
+@endif
 
 Mit freundlichen Grüßen<br>
 {{ $landlord }}
