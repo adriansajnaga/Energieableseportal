@@ -105,6 +105,10 @@ log "Migrationen"
 "$PHP" artisan migrate --force --no-interaction 2>&1
 
 log "Cache aufbauen"
-"$PHP" artisan optimize 2>&1
+# Kein route:cache: im Unterverzeichnis (/em/) erkennt der Routen-Cache die Startseite nicht (405).
+"$PHP" artisan optimize:clear 2>&1
+"$PHP" artisan config:cache 2>&1
+"$PHP" artisan event:cache 2>&1
+"$PHP" artisan view:cache 2>&1
 
 log "Fertig."

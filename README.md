@@ -39,7 +39,8 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
 - Katalog główny domeny musi wskazywać na `public/`.
 - `APP_ENV=production`, `APP_DEBUG=false`, dane SMTP w `MAIL_*`.
 - Cron co minutę: `* * * * * php /sciezka/artisan schedule:run` (wysyłka e-maili z kolejki i przypomnienia o odczytach).
-- Po wdrożeniu: `php artisan migrate --force && php artisan optimize`.
+- Wdrożenie przez cPanel Git („Deploy HEAD Commit”) uruchamia `deploy/deploy.sh`: composer, kopia `public/` do `public_html/em`, migracje, cache. Log: `storage/logs/deploy.log`.
+- Nie używaj `php artisan optimize` ani `route:cache`: w podkatalogu (`/em/`) cache tras psuje stronę startową (405).
 
 ## Role
 
