@@ -92,7 +92,11 @@ grep -q '^APP_KEY=base64:' "$APP/.env" || fail "APP_KEY in $APP/.env ist leer. L
 cd "$APP"
 export COMPOSER_HOME="${COMPOSER_HOME:-$HOME/.composer}"
 log "composer install"
-"$PHP" "$COMPOSER" install --no-dev --optimize-autoloader --no-interaction --no-progress $COMPOSER_IGNORE 2>&1
+# --no-scripts: Composer startet Skripte über proc_open, das beim Hoster deaktiviert ist.
+# Die Schritte aus "post-autoload-dump" folgen direkt danach ohne Unterprozess.
+"$PHP" "$COMPOSER" install --no-dev --optimize-autoloader --no-interaction --no-progress --no-scripts $COMPOSER_IGNORE 2>&1
+rm -f "$APP/bootstrap/cache/packages.php" "$APP/bootstrap/cache/services.php"
+"$PHP" artisan package:discover --no-ansi 2>&1
 
 log "Öffentliche Dateien nach $WEB kopieren"
 mkdir -p "$WEB"

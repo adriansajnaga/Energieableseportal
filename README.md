@@ -38,7 +38,9 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
 - PHP ≥ 8.2 z rozszerzeniami `pdo_mysql`, `mbstring` i `bcmath` (zalecane też `gd`).
 - Katalog główny domeny musi wskazywać na `public/`.
 - `APP_ENV=production`, `APP_DEBUG=false`, dane SMTP w `MAIL_*`.
-- Cron co minutę: `* * * * * php /sciezka/artisan schedule:run` (wysyłka e-maili z kolejki i przypomnienia o odczytach).
+- Cron (hosting bez `proc_open`, więc bez `schedule:run`):
+  - co minutę: `/bin/bash ~/Energieableseportal/deploy/artisan.sh queue:work --stop-when-empty --tries=3` (wysyłka e-maili),
+  - codziennie o 8:00: `/bin/bash ~/Energieableseportal/deploy/artisan.sh energie:reading-reminders` (przypomnienia o odczytach).
 - Wdrożenie przez cPanel Git („Deploy HEAD Commit”) uruchamia `deploy/deploy.sh`: composer, kopia `public/` do `public_html/em`, migracje, cache. Log: `storage/logs/deploy.log`.
 - Nie używaj `php artisan optimize` ani `route:cache`: w podkatalogu (`/em/`) cache tras psuje stronę startową (405).
 
