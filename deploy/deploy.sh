@@ -23,23 +23,25 @@ done
 [ -n "$PHP" ] || fail "Kein PHP >= 8.2 gefunden. Im cPanel unter 'MultiPHP Manager' PHP 8.3/8.4 aktivieren."
 log "PHP: $PHP ($("$PHP" -r 'echo PHP_VERSION;'))"
 
-# --- Composer finden oder herunterladen -------------------------------------
-COMPOSER=""
-for candidate in /opt/cpanel/composer/bin/composer /usr/local/bin/composer "$(command -v composer 2>/dev/null || true)" "$APP/composer.phar"; do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-        COMPOSER="$candidate"
-        break
-    fi
+# --- PHP-Erweiterungen prüfen -----------------------------------------------
+missing=""
+for ext in bcmath ctype curl dom fileinfo filter hash mbstring openssl pdo_mysql session tokenizer xml; do
+    "$PHP" -r "exit(extension_loaded('$ext') ? 0 : 1);" || missing="$missing $ext"
 done
-if [ -z "$COMPOSER" ]; then
-    log "Composer nicht gefunden, lade composer.phar herunter"
+[ -z "$missing" ] || fail "PHP-Erweiterungen fehlen:$missing. Beim Hoster aktivieren lassen (z. B. ea-php82-php-fileinfo)."
+
+# --- Composer: eigene, aktuelle Kopie (System-Composer ist oft zu alt) -------
+COMPOSER="$APP/composer.phar"
+if [ ! -f "$COMPOSER" ]; then
+    log "Lade composer.phar herunter"
     cd "$APP"
     "$PHP" -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" || fail "Download von Composer fehlgeschlagen"
     "$PHP" composer-setup.php --quiet --install-dir="$APP" --filename=composer.phar || fail "Composer-Installation fehlgeschlagen"
     rm -f composer-setup.php
-    COMPOSER="$APP/composer.phar"
+else
+    "$PHP" "$COMPOSER" self-update --2 --no-interaction --quiet || log "composer self-update fehlgeschlagen, verwende vorhandene Version"
 fi
-log "Composer: $COMPOSER"
+log "Composer: $("$PHP" "$COMPOSER" --version --no-ansi 2>/dev/null | head -1)"
 
 # --- Voraussetzungen --------------------------------------------------------
 [ -f "$APP/.env" ] || fail "$APP/.env fehlt. Bitte im File Manager anlegen (siehe README)."
