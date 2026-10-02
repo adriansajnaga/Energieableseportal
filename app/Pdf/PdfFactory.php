@@ -78,6 +78,37 @@ class PdfFactory
         return $pdf;
     }
 
+    /** Jahresübersicht eines Mieters über alle seine Zähler (je Zähler eine Seite). */
+    public function tenantYear(Tenant $tenant, int $year): Document
+    {
+        $groups = Settlement::query()->effective()
+            ->where('tenant_id', $tenant->id)
+            ->whereYear('period', $year)
+            ->with(['meter', 'startReading', 'endReading', 'collectives'])
+            ->orderBy('period')
+            ->get()
+            ->groupBy('meter_id');
+
+        $pdf = new Document(__('Jahresübersicht :year', ['year' => $year]));
+
+        foreach ($groups as $settlements) {
+            $pdf->AddPage();
+            $pdf->view('pdf.year', [
+                'meter' => $settlements->first()->meter,
+                'tenant' => $tenant,
+                'year' => $year,
+                'settlements' => $settlements,
+            ] + $this->landlord());
+        }
+
+        if ($groups->isEmpty()) {
+            $pdf->AddPage();
+            $pdf->Write(0, __('Keine Abrechnungen vorhanden.'));
+        }
+
+        return $pdf;
+    }
+
     public function consumption(int $year): Document
     {
         $groups = Settlement::query()->effective()

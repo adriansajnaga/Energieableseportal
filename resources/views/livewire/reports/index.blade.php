@@ -48,6 +48,20 @@ new #[Title('Berichte')] class extends Component {
                 </div>
             </flux:card>
         @endforeach
+
+        @can('manage')
+            <flux:card class="flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                    <flux:icon name="photo" class="text-emerald-600" />
+                    <flux:heading>{{ __('QR-Etiketten als Bild (9 × 13 cm)') }}</flux:heading>
+                </div>
+                <flux:text class="flex-1">{{ __('Ein Bild je aktivem Zähler im Fotoformat, mit Hinweis zur Ablesefrist. Alle zusammen als ZIP.') }}</flux:text>
+                <div class="flex gap-2">
+                    <flux:button size="sm" icon="arrow-down-tray" :href="route('labels.zip', 'png')">{{ __('ZIP (PNG)') }}</flux:button>
+                    <flux:button size="sm" icon="arrow-down-tray" :href="route('labels.zip', 'jpg')">{{ __('ZIP (JPG)') }}</flux:button>
+                </div>
+            </flux:card>
+        @endcan
     </div>
 
     <flux:heading size="lg" class="mt-8">{{ __('Abweichung Hauptzähler :year', ['year' => $year]) }}</flux:heading>

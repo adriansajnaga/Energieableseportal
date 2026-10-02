@@ -69,7 +69,7 @@ new #[Title('Abrechnung')] class extends Component {
         }
 
         $settlement->update(['is_invoiced' => ! $settlement->is_invoiced]);
-        unset($this->detail, $this->candidates, $this->openCount, $this->openTenantsCount);
+        unset($this->detail, $this->candidates, $this->openTenantsCount);
 
         Flux::toast($settlement->is_invoiced
             ? __('Als extern abgerechnet markiert.')
@@ -119,7 +119,7 @@ new #[Title('Abrechnung')] class extends Component {
             $settlement->tenant->update(['email' => $this->emailTo]);
         }
 
-        unset($this->detail, $this->candidates, $this->collectives, $this->pendingEmailCount);
+        unset($this->detail, $this->candidates, $this->collectives);
         Flux::toast(__('Rechnung :number an :email versendet.', ['number' => $settlement->formattedNumber(), 'email' => $this->emailTo]), variant: 'success');
     }
 
@@ -176,15 +176,6 @@ new #[Title('Abrechnung')] class extends Component {
             ->count('tenant_id');
     }
 
-    /** Offene Monatsabrechnungen (ohne Rechnung) bis einschließlich des gewählten Monats. */
-    #[Computed]
-    public function openCount(): int
-    {
-        return Settlement::query()->openForCollection()
-            ->whereDate('period', '<=', $this->period()->toDateString())
-            ->count();
-    }
-
     #[Computed]
     public function totals(): array
     {
@@ -235,7 +226,7 @@ new #[Title('Abrechnung')] class extends Component {
             return;
         }
 
-        unset($this->candidates, $this->collectives, $this->openTenantsCount, $this->openCount);
+        unset($this->candidates, $this->collectives, $this->openTenantsCount);
         Flux::modal('collect')->close();
         Flux::toast(__('Sammelrechnung :number erstellt.', ['number' => $collective->formattedNumber()]), variant: 'success');
     }
@@ -251,31 +242,6 @@ new #[Title('Abrechnung')] class extends Component {
         foreach ($result['errors'] as $error) {
             Flux::toast($error, variant: 'danger');
         }
-    }
-
-    /** Anzahl der als extern abgerechnet markierten Abrechnungen im Jahr des gewählten Monats. */
-    #[Computed]
-    public function externalCount(): int
-    {
-        return app(SettlementService::class)->externallyInvoicedQuery($this->period()->year)->count();
-    }
-
-    public function unmarkExternal(SettlementService $service): void
-    {
-        Gate::authorize('manage');
-        $count = $service->unmarkExternallyInvoiced($this->period()->year);
-        unset($this->candidates, $this->openCount, $this->openTenantsCount, $this->externalCount);
-
-        Flux::toast(__('Markierung bei :count Abrechnungen aufgehoben.', ['count' => $count]), variant: 'success');
-    }
-
-    public function markExternal(SettlementService $service): void
-    {
-        Gate::authorize('manage');
-        $count = $service->markExternallyInvoiced($this->period());
-        unset($this->candidates, $this->openCount, $this->openTenantsCount, $this->externalCount);
-
-        Flux::toast(__(':count Abrechnungen als extern abgerechnet markiert.', ['count' => $count]), variant: 'success');
     }
 
     public function cancel(Settlement $settlement, SettlementService $service): void
@@ -294,46 +260,6 @@ new #[Title('Abrechnung')] class extends Component {
         Flux::toast($cancellation
             ? __('Storniert, Stornorechnung :number erstellt.', ['number' => $cancellation->formattedNumber()])
             : __('Abrechnung storniert.'), variant: 'success');
-    }
-
-    public function sendEmails(InvoiceMailer $mailer): void
-    {
-        Gate::authorize('manage');
-
-        $settlements = $this->pendingEmailQuery()->with('tenant')->get();
-
-        $sent = 0;
-
-        foreach ($settlements as $settlement) {
-            try {
-                $mailer->send($settlement, $settlement->tenant->email);
-                $sent++;
-            } catch (Throwable $e) {
-                report($e);
-                Flux::toast($settlement->formattedNumber().': '.$e->getMessage(), variant: 'danger');
-            }
-        }
-
-        unset($this->candidates, $this->collectives, $this->pendingEmailCount);
-        Flux::toast(__(':count Rechnungen per E-Mail versendet.', ['count' => $sent]), variant: 'success');
-    }
-
-    /** Rechnungen des Monats, die noch nicht versendet wurden und deren Mieter E-Mail-Versand gewählt hat. */
-    private function pendingEmailQuery()
-    {
-        return Settlement::query()
-            ->whereIn('type', [SettlementType::Invoice, SettlementType::Collective])
-            ->numbered()
-            ->whereNull('cancelled_at')
-            ->whereNull('emailed_at')
-            ->whereDate('period', $this->period()->toDateString())
-            ->whereHas('tenant', fn ($q) => $q->where('send_invoices_by_email', true)->whereNotNull('email'));
-    }
-
-    #[Computed]
-    public function pendingEmailCount(): int
-    {
-        return $this->pendingEmailQuery()->count();
     }
 
     public function badgeColor(string $status): string
@@ -364,28 +290,11 @@ new #[Title('Abrechnung')] class extends Component {
         <flux:dropdown>
             <flux:button icon="ellipsis-horizontal" icon-trailing="chevron-down">{{ __('Weitere Aktionen') }}</flux:button>
             <flux:menu>
-                <flux:menu.item icon="check-badge" wire:click="markExternal" :disabled="$this->openCount === 0"
-                    wire:confirm="{{ __('Alle :count noch nicht in Rechnung gestellten Abrechnungen bis einschließlich :month als extern abgerechnet markieren? Sie erscheinen danach nicht mehr bei den Sammelrechnungen.', ['count' => $this->openCount, 'month' => $this->period()->format('m/Y')]) }}">
-                    {{ __('Bis :month als extern abgerechnet markieren (:count)', ['month' => $this->period()->format('m/Y'), 'count' => $this->openCount]) }}
-                </flux:menu.item>
-                <flux:menu.item icon="arrow-uturn-left" wire:click="unmarkExternal" :disabled="$this->externalCount === 0"
-                    wire:confirm="{{ __('Markierung „extern abgerechnet“ bei :count Abrechnungen im Jahr :year aufheben? Die Monate stehen danach wieder für Sammelrechnungen bereit.', ['count' => $this->externalCount, 'year' => $this->period()->year]) }}">
-                    {{ __('Markierung „extern abgerechnet“ im Jahr :year aufheben (:count)', ['year' => $this->period()->year, 'count' => $this->externalCount]) }}
-                </flux:menu.item>
+                <flux:menu.item icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:menu.item>
+                <flux:menu.item icon="table-cells" :href="route('pdf.overview', $month)" target="_blank">{{ __('Alle Abrechnungen (PDF)') }}</flux:menu.item>
                 <flux:menu.separator />
-                <flux:menu.item icon="envelope" wire:click="sendEmails" :disabled="$this->pendingEmailCount === 0"
-                    wire:confirm="{{ __(':count Rechnungen dieses Monats jetzt an alle Mieter mit E-Mail-Versand senden?', ['count' => $this->pendingEmailCount]) }}">
-                    {{ __('Alle Rechnungen des Monats per E-Mail senden (:count)', ['count' => $this->pendingEmailCount]) }}
-                </flux:menu.item>
-            </flux:menu>
-        </flux:dropdown>
-        <flux:button icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:button>
-        <flux:button icon="table-cells" :href="route('pdf.overview', $month)" target="_blank">{{ __('Alle Abrechnungen (PDF)') }}</flux:button>
-        <flux:dropdown>
-            <flux:button icon="arrow-down-tray" icon-trailing="chevron-down">{{ __('Export') }}</flux:button>
-            <flux:menu>
-                <flux:menu.item :href="route('export.settlements', $month)">{{ __('Abrechnungen (CSV)') }}</flux:menu.item>
-                <flux:menu.item :href="route('export.datev', $month)">{{ __('DATEV Buchungsstapel (CSV)') }}</flux:menu.item>
+                <flux:menu.item icon="arrow-down-tray" :href="route('export.settlements', $month)">{{ __('Exportieren: Abrechnungen (CSV)') }}</flux:menu.item>
+                <flux:menu.item icon="arrow-down-tray" :href="route('export.datev', $month)">{{ __('Exportieren: DATEV Buchungsstapel (CSV)') }}</flux:menu.item>
             </flux:menu>
         </flux:dropdown>
         @else
@@ -437,6 +346,8 @@ new #[Title('Abrechnung')] class extends Component {
                             <flux:badge size="sm" color="sky">{{ __('Sammelrechnung') }} {{ $inCollective->formattedNumber() }}</flux:badge>
                         @elseif ($s?->isFlatRate())
                             <flux:badge size="sm" color="amber">{{ __('Pauschale') }}</flux:badge>
+                            <flux:button size="xs" variant="ghost" icon="calendar-days" :href="route('pdf.tenant-year', [$candidate->tenant, $this->period()->year])" target="_blank"
+                                :tooltip="__('Jahresübersicht :year – :tenant', ['year' => $this->period()->year, 'tenant' => $candidate->tenant->name])" />
                         @elseif ($s && ! $s->is_invoiced)
                             <flux:badge size="sm" color="zinc">{{ __('ohne Rechnung') }}</flux:badge>
                         @elseif ($s && ! $s->invoice_number)

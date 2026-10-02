@@ -10,7 +10,9 @@ use App\Models\Setting;
 use App\Models\Settlement;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\SettlementService;
 use App\Support\MailSettings;
+use App\Support\QrLabelImage;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -324,8 +326,7 @@ it('marks old settlements as invoiced outside the portal up to the chosen month'
     $months = Settlement::query()->orderBy('period')->pluck('period')->unique()->values();
     $cutoff = $months[1];
 
-    Volt::actingAs($this->admin)->test('settlements.index', ['month' => $cutoff->format('Y-m')])
-        ->call('markExternal');
+    app(SettlementService::class)->markExternallyInvoiced($cutoff);
 
     expect(Settlement::query()->openForCollection()->whereDate('period', '<=', $cutoff)->count())->toBe(0)
         ->and(Settlement::query()->openForCollection()->whereDate('period', '>', $cutoff)->count())->toBeGreaterThan(0);
@@ -436,4 +437,39 @@ it('leaves inactive main meters out of all reports', function () {
 
     $this->actingAs($this->admin)->get(route('reports.index', ['monat' => now()->format('Y-m')]))
         ->assertSee($main->number)->assertDontSee('HZ-INAKTIV');
+});
+
+it('downloads QR label images and a ZIP with all labels', function () {
+    if (! QrLabelImage::available() || ! class_exists(ZipArchive::class)) {
+        $this->markTestSkipped('GD/zip nicht geladen (php -d extension=gd -d extension=zip).');
+    }
+    $meter = Meter::active()->first();
+
+    $png = $this->actingAs($this->admin)->get(route('labels.image', [$meter, 'png']));
+    $png->assertOk()->assertHeader('Content-Type', 'image/png');
+    [$w, $h] = getimagesizefromstring($png->getContent());
+    expect([$w, $h])->toBe([1063, 1535]);
+
+    $this->actingAs($this->admin)->get(route('labels.image', [$meter, 'jpg']))->assertHeader('Content-Type', 'image/jpeg');
+
+    $zip = $this->actingAs($this->admin)->get(route('labels.zip', 'png'));
+    $zip->assertOk();
+    $archive = new ZipArchive;
+    $archive->open($zip->baseResponse->getFile()->getPathname());
+    expect($archive->numFiles)->toBe(Meter::active()->count());
+
+    $this->actingAs($this->caretaker)->get(route('labels.zip', 'png'))->assertForbidden();
+});
+
+it('offers the yearly overview of a flat-rate tenant next to the badge', function () {
+    $settlement = Settlement::first();
+    $settlement->update(['invoice_number' => null, 'is_invoiced' => false]);
+    $settlement->tenant->update(['issues_invoices' => false]);
+    $url = route('pdf.tenant-year', [$settlement->tenant, $settlement->period->year]);
+
+    $this->actingAs($this->admin)->get(route('settlements.index', ['monat' => $settlement->period->format('Y-m')]))
+        ->assertSee($url, false);
+
+    $this->actingAs($this->admin)->get($url)->assertOk()
+        ->assertHeader('Content-Disposition', 'inline; filename="KuB_Jahresuebersicht_'.str($settlement->tenant->name)->slug().'_'.$settlement->period->year.'.pdf"');
 });

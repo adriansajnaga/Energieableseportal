@@ -55,6 +55,14 @@ class PdfController extends Controller
             ->inline(Settlement::filePrefix().'Jahresuebersicht_'.str($tenant->name)->slug().'_'.$year.'.pdf');
     }
 
+    public function tenantYear(Tenant $tenant, int $year): Response
+    {
+        Gate::authorize('view-finance');
+
+        return $this->pdf->tenantYear($tenant, $year)
+            ->inline(Settlement::filePrefix().'Jahresuebersicht_'.str($tenant->name)->slug().'_'.$year.'.pdf');
+    }
+
     public function consumption(int $year): Response
     {
         Gate::authorize('view-finance');

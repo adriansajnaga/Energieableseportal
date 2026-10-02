@@ -35,7 +35,7 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
 
 ## Wdrożenie na serwer
 
-- PHP ≥ 8.2 z rozszerzeniami `pdo_mysql`, `mbstring` i `bcmath` (zalecane też `gd`).
+- PHP ≥ 8.2 z rozszerzeniami `pdo_mysql`, `mbstring`, `bcmath` i `fileinfo` (zdjęcia odczytów); `gd` i `zip` dla etykiet QR jako zdjęć 9×13 cm i pobierania ZIP.
 - Katalog główny domeny musi wskazywać na `public/`.
 - `APP_ENV=production`, `APP_DEBUG=false`, dane SMTP w `MAIL_*`.
 - Cron (hosting bez `proc_open`, więc bez `schedule:run`):

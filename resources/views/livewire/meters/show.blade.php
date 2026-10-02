@@ -209,7 +209,11 @@ new class extends Component {
                 <flux:text class="mt-2 text-xs text-amber-600">{{ __('Alter QR-Code (Altsystem) ist noch gültig.') }}</flux:text>
             @endif
             @can('manage')
-                <div class="mt-3">
+                <div class="mt-3 flex flex-wrap justify-center gap-1">
+                    <flux:button size="sm" icon="photo" :href="route('labels.image', [$meter, 'png'])">{{ __('Etikett PNG') }}</flux:button>
+                    <flux:button size="sm" icon="photo" :href="route('labels.image', [$meter, 'jpg'])">{{ __('Etikett JPG') }}</flux:button>
+                </div>
+                <div class="mt-1">
                     <flux:button size="sm" variant="ghost" icon="arrow-path" wire:click="regenerateToken" wire:confirm="{{ __('Neuen QR-Code erzeugen? Der bisherige Code am Zähler wird ungültig.') }}">{{ __('Neuen Code erzeugen') }}</flux:button>
                 </div>
             @endcan

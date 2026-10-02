@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ExportController;
+use App\Http\Controllers\LabelController;
 use App\Http\Controllers\LegacyQrController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PdfController;
@@ -45,12 +46,16 @@ Route::middleware(['auth'])->group(function () {
         Route::get('invoices/{month}', 'invoices')->name('invoices');
         Route::get('overview/{month}', 'overview')->name('overview');
         Route::get('year/{meter}/{tenant}/{year}', 'year')->name('year');
+        Route::get('tenant-year/{tenant}/{year}', 'tenantYear')->name('tenant-year');
         Route::get('qr-list', 'qrList')->name('qr-list');
         Route::get('qr-labels', 'qrLabels')->name('qr-labels');
         Route::get('main-meters/{month}', 'mainMeters')->name('main-meters');
         Route::get('consumption/{year}', 'consumption')->name('consumption');
         Route::get('difference/{year}', 'difference')->name('difference');
     });
+
+    Route::get('labels/zip/{format}', [LabelController::class, 'zip'])->whereIn('format', ['png', 'jpg'])->name('labels.zip');
+    Route::get('labels/{meter}/{format}', [LabelController::class, 'image'])->whereIn('format', ['png', 'jpg'])->name('labels.image');
 
     Route::get('export/tenants', [ExportController::class, 'tenants'])->middleware('can:view-finance')->name('export.tenants');
 
