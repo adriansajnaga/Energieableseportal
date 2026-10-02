@@ -14,7 +14,7 @@ new #[Title('Berichte')] class extends Component {
     {
         $year = $this->period()->startOfYear();
 
-        return app(Statistics::class)->mainMeterComparison($year, $year->endOfYear());
+        return app(Statistics::class)->mainMeterComparison($year, $year->endOfYear(), onlyActive: true);
     }
 }; ?>
 

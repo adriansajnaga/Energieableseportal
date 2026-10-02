@@ -4,6 +4,7 @@ use App\Enums\ReadingSource;
 use App\Enums\ReadingStatus;
 use App\Enums\Role;
 use App\Mail\InvoiceMail;
+use App\Models\ElectricityPrice;
 use App\Models\Meter;
 use App\Models\Setting;
 use App\Models\Settlement;
@@ -426,4 +427,13 @@ it('shows the copyright footer on app, login and public pages', function () {
     auth()->logout();
     $this->get('/login')->assertSee($footer);
     $this->get(route('public.reading', Meter::first()->qr_token))->assertSee($footer);
+});
+
+it('leaves inactive main meters out of all reports', function () {
+    $main = Meter::where('is_main', true)->first();
+    $old = Meter::factory()->main()->create(['number' => 'HZ-INAKTIV', 'is_active' => false]);
+    ElectricityPrice::create(['meter_id' => $old->id, 'month' => now()->startOfMonth()->toDateString(), 'net_price' => 0.3, 'consumption_kwh' => 500]);
+
+    $this->actingAs($this->admin)->get(route('reports.index', ['monat' => now()->format('Y-m')]))
+        ->assertSee($main->number)->assertDontSee('HZ-INAKTIV');
 });

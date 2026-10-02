@@ -110,7 +110,7 @@ class PdfFactory
 
     public function mainMeters(CarbonImmutable $month): Document
     {
-        $meters = Meter::query()->main()->orderBy('number')->get()->map(fn (Meter $meter) => [
+        $meters = Meter::query()->main()->active()->orderBy('number')->get()->map(fn (Meter $meter) => [
             'meter' => $meter,
             'price' => ElectricityPrice::query()->where('meter_id', $meter->id)->whereDate('month', $month->toDateString())->first(),
             'settlements' => Settlement::query()->effective()
@@ -152,7 +152,7 @@ class PdfFactory
     public function difference(int $year): Document
     {
         $start = CarbonImmutable::create($year, 1, 1);
-        $comparison = $this->statistics->mainMeterComparison($start, $start->endOfYear());
+        $comparison = $this->statistics->mainMeterComparison($start, $start->endOfYear(), onlyActive: true);
 
         $pdf = new Document(__('Abweichungsbericht :year', ['year' => $year]));
         $pdf->AddPage();
