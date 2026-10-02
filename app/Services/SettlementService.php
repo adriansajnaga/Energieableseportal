@@ -40,6 +40,9 @@ class SettlementService
             // (Zählerwechsel: Abrechnung bis zum Ausbautag).
             ->filter(fn (MeterAssignment $a) => $a->meter->is_active
                 || ($a->meter->removed_on && $a->meter->removed_on->greaterThanOrEqualTo($period)))
+            // Inaktive Mieter ebenfalls nicht – außer das Mietverhältnis endet erst in diesem Monat ("Mieter bis").
+            ->filter(fn (MeterAssignment $a) => $a->tenant->is_active
+                || ($a->tenant->active_until && $a->tenant->active_until->greaterThanOrEqualTo($period)))
             ->sortBy(fn (MeterAssignment $a) => [$a->tenant->name, $a->meter->number]);
 
         $meterIds = $assignments->pluck('meter_id')->unique();

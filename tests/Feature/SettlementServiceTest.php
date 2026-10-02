@@ -355,3 +355,13 @@ it('unmarks externally invoiced settlements of a year', function () {
         ->and($this->service->unmarkExternallyInvoiced(2024))->toBe(1)
         ->and(Settlement::query()->openForCollection()->count())->toBe(1);
 });
+
+it('does not list inactive tenants, except in the month their tenancy ends', function () {
+    // Wie nach dem Import: Mieter inaktiv, Zuordnung zum Zähler aber noch offen.
+    $this->tenant->update(['is_active' => false]);
+    expect($this->service->candidates(CarbonImmutable::parse('2024-06-01')))->toHaveCount(0);
+
+    $this->tenant->update(['active_until' => '2024-06-30']);
+    expect($this->service->candidates(CarbonImmutable::parse('2024-06-01')))->toHaveCount(1)
+        ->and($this->service->candidates(CarbonImmutable::parse('2024-07-01')))->toHaveCount(0);
+});
