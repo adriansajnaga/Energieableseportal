@@ -329,3 +329,29 @@ it('marks externally invoiced settlements without self-referencing update', func
     expect($this->service->markExternallyInvoiced(CarbonImmutable::parse('2024-06-01')))->toBe(1)
         ->and(Settlement::query()->openForCollection()->count())->toBe(0);
 });
+
+it('never creates an invoice for a flat-rate tenant', function () {
+    $this->tenant->update(['issues_invoices' => false]);
+    reading($this->meter, 1100, '2024-06-21');
+
+    $candidate = $this->service->candidates(CarbonImmutable::parse('2024-06-01'))->sole();
+    $settlement = $this->service->settle($candidate, $candidate->defaultSample(), null, true, null);
+
+    expect($settlement->invoice_number)->toBeNull()
+        ->and($settlement->is_invoiced)->toBeFalse()
+        ->and($settlement->isFlatRate())->toBeTrue()
+        ->and(Settlement::query()->openForCollection()->count())->toBe(0)
+        ->and(fn () => $this->service->collect(collect([$settlement]), null))->toThrow(RuntimeException::class)
+        ->and($this->service->collectAll(CarbonImmutable::parse('2024-06-01'), null)['created'])->toBe(0)
+        ->and($this->service->markExternallyInvoiced(CarbonImmutable::parse('2024-06-01')))->toBe(0);
+});
+
+it('unmarks externally invoiced settlements of a year', function () {
+    reading($this->meter, 1100, '2024-06-21');
+    $this->service->settleAll(CarbonImmutable::parse('2024-06-01'), false, null);
+    $this->service->markExternallyInvoiced(CarbonImmutable::parse('2024-06-01'));
+
+    expect($this->service->unmarkExternallyInvoiced(2023))->toBe(0)
+        ->and($this->service->unmarkExternallyInvoiced(2024))->toBe(1)
+        ->and(Settlement::query()->openForCollection()->count())->toBe(1);
+});

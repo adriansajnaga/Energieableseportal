@@ -75,6 +75,8 @@ alter table `collective_items` add constraint `collective_items_collective_id_fo
 alter table `collective_items` add constraint `collective_items_settlement_id_foreign` foreign key (`settlement_id`) references `settlements` (`id`) on delete cascade  ;
 alter table `collective_items` add unique `collective_items_collective_id_settlement_id_unique`(`collective_id`, `settlement_id`)  ;
 alter table `settlements` add `emailed_to` varchar(255) null after `emailed_at`  ;
+alter table `tenants` add `active_until` date null after `active_from`  ;
+alter table `tenants` add `issues_invoices` tinyint(1) not null default '1' after `price_factor`  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -83,4 +85,6 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_29_000001_add_role_fields_to_users_table', 1),
 ('2026_09_29_000002_create_energy_tables', 1),
 ('2026_09_30_000001_add_collective_invoices', 1),
-('2026_10_01_000001_add_emailed_to_to_settlements', 1);
+('2026_10_01_000001_add_emailed_to_to_settlements', 1),
+('2026_10_01_000002_add_active_until_to_tenants', 1),
+('2026_10_02_000001_add_invoicing_mode_to_tenants', 1);

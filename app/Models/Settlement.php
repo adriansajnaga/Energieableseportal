@@ -139,6 +139,7 @@ class Settlement extends Model
     {
         $query->effective()
             ->where('is_invoiced', false)
+            ->whereHas('tenant', fn (Builder $q) => $q->where('issues_invoices', true))
             ->whereDoesntHave('collectives', fn (Builder $q) => $q->whereNull('cancelled_at'));
     }
 
@@ -156,6 +157,12 @@ class Settlement extends Model
 
         return Setting::get('invoice_prefix')
             .str_pad((string) $this->invoice_number, (int) Setting::get('invoice_digits'), '0', STR_PAD_LEFT);
+    }
+
+    /** Abrechnung eines Pauschalmieters (nur zur Kontrolle, nie eine Rechnung). */
+    public function isFlatRate(): bool
+    {
+        return $this->type === SettlementType::Invoice && ! $this->invoice_number && ! $this->tenant->issues_invoices;
     }
 
     /** Nur Belege mit Rechnungsnummer können per E-Mail verschickt werden. */

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Support\MailSettings;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Volt;
@@ -373,11 +374,35 @@ it('marks a single month as invoiced outside the portal and back', function () {
 
 it('links the settings through named routes so the app works in a subdirectory', function () {
     // Absolute Pfade wie href="/settings/profile" führen unter https://ascomm.pl/em/ zu 404.
-    $views = collect(Illuminate\Support\Facades\File::allFiles(resource_path('views')))
+    $views = collect(File::allFiles(resource_path('views')))
         ->filter(fn ($f) => preg_match('/(href|action)="\/[a-z]/', $f->getContents()));
 
     expect($views->map->getRelativePathname()->values()->all())->toBe([]);
 
     $this->actingAs($this->admin)->get('/settings/profile')->assertOk()->assertDontSee('Delete account');
     $this->actingAs($this->admin)->get('/dashboard')->assertSee('$flux.appearance', false);
+});
+
+it('exports all tenants with contact data and invoicing settings', function () {
+    $flat = Tenant::first();
+    $flat->update(['issues_invoices' => false, 'is_active' => false]);
+
+    $csv = $this->actingAs($this->admin)->get(route('export.tenants'))->streamedContent();
+
+    expect($csv)->toContain('Rechnungen ausstellen')->toContain($flat->name)
+        ->and(substr_count($csv, "\n"))->toBe(Tenant::count() + 1);
+    $this->actingAs($this->caretaker)->get(route('export.tenants'))->assertForbidden();
+});
+
+it('shows a flat-rate tenant settlement as control without invoice actions', function () {
+    $settlement = Settlement::first();
+    $settlement->update(['invoice_number' => null, 'is_invoiced' => false]);
+    $settlement->tenant->update(['issues_invoices' => false]);
+
+    Volt::actingAs($this->admin)->test('settlements.index', ['month' => $settlement->period->format('Y-m')])
+        ->call('showDetail', $settlement->id)
+        ->assertSee('Pauschalmieter')
+        ->assertDontSee('Als extern abgerechnet markieren');
+
+    $this->actingAs($this->admin)->get(route('pdf.invoice', $settlement))->assertOk();
 });

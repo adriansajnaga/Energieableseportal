@@ -39,6 +39,8 @@
                     {{ $c->statusLabel() }}
                 @elseif ($s->invoice_number)
                     {{ $s->formattedNumber() }}@if ($s->emailed_at) · versendet @endif
+                @elseif ($s->isFlatRate())
+                    Pauschale (ohne Rechnung)
                 @elseif ($collective = $s->activeCollective())
                     Sammelrechnung {{ $collective->formattedNumber() }}
                 @elseif ($s->is_invoiced)

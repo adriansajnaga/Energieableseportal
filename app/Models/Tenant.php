@@ -14,13 +14,19 @@ class Tenant extends Model
 
     protected $fillable = [
         'name', 'debtor_number', 'street', 'zip', 'city', 'phone', 'email',
-        'price_factor', 'send_invoices_by_email', 'is_active', 'active_from', 'active_until', 'legacy_id',
+        'price_factor', 'issues_invoices', 'send_invoices_by_email', 'is_active', 'active_from', 'active_until', 'legacy_id',
+    ];
+
+    protected $attributes = [
+        'issues_invoices' => true,
+        'is_active' => true,
     ];
 
     protected function casts(): array
     {
         return [
             'price_factor' => 'decimal:3',
+            'issues_invoices' => 'boolean',
             'send_invoices_by_email' => 'boolean',
             'is_active' => 'boolean',
             'active_from' => 'date',

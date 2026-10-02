@@ -32,6 +32,7 @@ new #[Title('Mieter')] class extends Component {
     public string $email = '';
     public string $price_factor = '';
     public bool $send_invoices_by_email = false;
+    public bool $issues_invoices = true;
     public bool $is_active = true;
     public string $active_from = '';
     public string $active_until = '';
@@ -74,6 +75,7 @@ new #[Title('Mieter')] class extends Component {
             'debtor_number' => (string) $tenant->debtor_number,
             'price_factor' => (string) $tenant->price_factor,
             'send_invoices_by_email' => $tenant->send_invoices_by_email,
+            'issues_invoices' => $tenant->issues_invoices,
             'is_active' => $tenant->is_active,
             'active_from' => $tenant->active_from?->toDateString() ?? '',
             'active_until' => $tenant->active_until?->toDateString() ?? '',
@@ -95,12 +97,18 @@ new #[Title('Mieter')] class extends Component {
             'email' => ['nullable', 'email', 'max:255', 'required_if:send_invoices_by_email,true'],
             'price_factor' => ['nullable', 'numeric', 'min:0.5', 'max:5'],
             'send_invoices_by_email' => ['boolean'],
+            'issues_invoices' => ['boolean'],
             'is_active' => ['boolean'],
             'active_from' => ['nullable', 'date'],
             'active_until' => ['nullable', 'date', 'after_or_equal:active_from'],
         ]);
 
         $data = array_map(fn ($v) => $v === '' ? null : $v, $data);
+
+        // Ohne Rechnungen gibt es auch keinen E-Mail-Versand von Rechnungen.
+        if (! $data['issues_invoices']) {
+            $data['send_invoices_by_email'] = false;
+        }
         $until = $data['active_until'] ? CarbonImmutable::parse($data['active_until']) : null;
         unset($data['active_until']);
 
@@ -128,6 +136,7 @@ new #[Title('Mieter')] class extends Component {
     private function resetForm(): void
     {
         $this->reset(['editingId', 'name', 'debtor_number', 'street', 'zip', 'city', 'phone', 'email', 'price_factor', 'send_invoices_by_email', 'active_from', 'active_until']);
+        $this->issues_invoices = true;
         $this->is_active = true;
         $this->resetValidation();
     }
@@ -135,6 +144,9 @@ new #[Title('Mieter')] class extends Component {
 
 <div>
     <x-page-header :title="__('Mieter')" :subtitle="__('Stammdaten der Mieter und Rechnungsempfänger')">
+        @can('view-finance')
+            <flux:button icon="arrow-down-tray" :href="route('export.tenants')">{{ __('Export (CSV)') }}</flux:button>
+        @endcan
         @can('manage')
             <flux:button variant="primary" icon="plus" wire:click="create">{{ __('Mieter hinzufügen') }}</flux:button>
         @endcan
@@ -174,7 +186,12 @@ new #[Title('Mieter')] class extends Component {
                         @endif
                     </flux:table.cell>
                     <flux:table.cell align="center">{{ $tenant->meters_count }}</flux:table.cell>
-                    <flux:table.cell align="center">{{ $tenant->price_factor ? (float) $tenant->price_factor : __('Standard') }}</flux:table.cell>
+                    <flux:table.cell align="center">
+                        {{ $tenant->price_factor ? (float) $tenant->price_factor : __('Standard') }}
+                        @unless ($tenant->issues_invoices)
+                            <div class="mt-1"><flux:badge size="sm" color="amber">{{ __('Pauschale') }}</flux:badge></div>
+                        @endunless
+                    </flux:table.cell>
                     <flux:table.cell align="center">
                         <flux:badge size="sm" :color="$tenant->is_active ? 'green' : 'zinc'">{{ $tenant->is_active ? __('Ja') : __('Nein') }}</flux:badge>
                         @if ($tenant->active_until)
@@ -215,7 +232,10 @@ new #[Title('Mieter')] class extends Component {
                 <flux:input wire:model="email" :label="__('E-Mail')" type="email" />
             </div>
             <flux:input wire:model="price_factor" :label="__('Individueller Preisfaktor')" :description="__('Leer lassen für den Standardwert aus den Einstellungen.')" type="number" step="0.001" />
-            <flux:switch wire:model="send_invoices_by_email" :label="__('Rechnungen per E-Mail senden')" />
+            <flux:switch wire:model.live="issues_invoices" :label="__('Rechnungen ausstellen')" :description="__('Aus = Pauschalmieter: Die Abrechnung dient nur der Kontrolle, es wird nie eine Rechnung mit Nummer erstellt.')" />
+            @if ($issues_invoices)
+                <flux:switch wire:model="send_invoices_by_email" :label="__('Rechnungen per E-Mail senden')" />
+            @endif
             <flux:switch wire:model="is_active" :label="__('Aktiv')" :description="__('Beim Deaktivieren werden die Zähler vom Mieter gelöst.')" />
 
             <div class="flex justify-end gap-2">

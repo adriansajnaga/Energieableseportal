@@ -135,6 +135,9 @@ class SettlementService
 
         $calc = $this->preview($candidate, $sample, $priceFactor);
 
+        // Pauschalmieter erhalten nie eine Rechnung mit Nummer, die Abrechnung dient nur der Kontrolle.
+        $invoice = $invoice && $candidate->tenant->issues_invoices;
+
         return DB::transaction(function () use ($candidate, $sample, $calc, $invoice, $user) {
             $alreadySettled = Settlement::query()->effective()
                 ->where('meter_id', $candidate->meter->id)
@@ -262,6 +265,10 @@ class SettlementService
             throw new RuntimeException(__('Bitte mindestens eine Abrechnung auswählen.'));
         }
 
+        if ($items->contains(fn (Settlement $s) => ! $s->tenant->issues_invoices)) {
+            throw new RuntimeException(__('Für diesen Mieter werden keine Rechnungen ausgestellt (Pauschale).'));
+        }
+
         if ($items->pluck('tenant_id')->unique()->count() > 1) {
             throw new RuntimeException(__('Eine Sammelrechnung kann nur Abrechnungen eines Mieters enthalten.'));
         }
@@ -356,6 +363,28 @@ class SettlementService
             ->pluck('id');
 
         return $ids->chunk(500)->sum(fn ($chunk) => Settlement::query()->whereKey($chunk)->update(['is_invoiced' => true]));
+    }
+
+    /**
+     * Abrechnungen des Jahres, die als extern abgerechnet markiert sind (ohne Rechnungsnummer,
+     * nicht in einer gültigen Sammelrechnung, Mieter mit Rechnungen).
+     */
+    public function externallyInvoicedQuery(int $year)
+    {
+        return Settlement::query()->effective()
+            ->where('is_invoiced', true)
+            ->whereNull('invoice_number')
+            ->whereYear('period', $year)
+            ->whereHas('tenant', fn ($q) => $q->where('issues_invoices', true))
+            ->whereDoesntHave('collectives', fn ($q) => $q->whereNull('cancelled_at'));
+    }
+
+    /** Hebt "extern abgerechnet" für ein Jahr wieder auf; die Monate stehen danach wieder für Sammelrechnungen bereit. */
+    public function unmarkExternallyInvoiced(int $year): int
+    {
+        $ids = $this->externallyInvoicedQuery($year)->pluck('id');
+
+        return $ids->chunk(500)->sum(fn ($chunk) => Settlement::query()->whereKey($chunk)->update(['is_invoiced' => false]));
     }
 
     /** Storniert eine Sammelrechnung; die enthaltenen Monate können danach neu abgerechnet werden. */

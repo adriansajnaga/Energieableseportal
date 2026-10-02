@@ -2,6 +2,7 @@
     $money = fn ($v) => number_format((float) $v, 2, ',', '.');
     $kwh = fn ($v) => number_format((int) $v, 0, ',', '.');
     $isCancellation = $s->type === \App\Enums\SettlementType::Cancellation;
+    $isFlatRate = $s->isFlatRate();
 @endphp
 <table cellspacing="0" cellpadding="0" border="0">
     <tr>
@@ -16,14 +17,16 @@
 <br><br>
 <table cellspacing="0" cellpadding="0" border="0">
     <tr><td width="50%"></td><td width="20%">Rechnungsdatum:</td><td width="30%">{{ $s->invoice_date?->format('d.m.Y') ?? '---' }}</td></tr>
-    <tr><td></td><td>{{ $isCancellation ? 'Stornorechnung Nr.:' : 'Rechnungsnr.:' }}</td><td>{{ $s->formattedNumber() }}</td></tr>
+    @unless ($isFlatRate)
+        <tr><td></td><td>{{ $isCancellation ? 'Stornorechnung Nr.:' : 'Rechnungsnr.:' }}</td><td>{{ $s->formattedNumber() }}</td></tr>
+    @endunless
     @if ($isCancellation)
         <tr><td></td><td>zu Rechnung:</td><td>{{ $s->cancels?->formattedNumber() }}</td></tr>
     @endif
 </table>
 <br><br>
 <span style="font-size:11pt;font-weight:bold;">
-    {{ $isCancellation ? 'Stornierung Ihrer Stromverbrauchsabrechnung' : 'Ihre Stromverbrauchsabrechnung' }} für den Zeitraum vom {{ $s->starts_on->format('d.m.Y') }} bis {{ $s->ends_on->format('d.m.Y') }}
+    {{ $isFlatRate ? 'Kontrollabrechnung (Pauschale – keine Rechnung)' : ($isCancellation ? 'Stornierung Ihrer Stromverbrauchsabrechnung' : 'Ihre Stromverbrauchsabrechnung') }} für den Zeitraum vom {{ $s->starts_on->format('d.m.Y') }} bis {{ $s->ends_on->format('d.m.Y') }}
 </span>
 <br><br>
 <table cellspacing="0" cellpadding="0" border="0">
@@ -72,6 +75,6 @@
     </tr>
 </table>
 <br><br>
-@unless ($isCancellation)
+@unless ($isCancellation || $isFlatRate)
     <div style="text-align:center;">Wir bedanken uns für Ihr Vertrauen und haben auf Basis Ihrer Verbrauchswerte Ihre Abrechnung erstellt.</div>
 @endunless

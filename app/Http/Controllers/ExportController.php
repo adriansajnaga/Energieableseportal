@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\SettlementType;
 use App\Models\Setting;
 use App\Models\Settlement;
+use App\Models\Tenant;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -52,12 +53,45 @@ class ExportController extends Controller
         ], $rows);
     }
 
+    /** Alle Mieter mit Kontaktdaten, Status und Rechnungseinstellungen. */
+    public function tenants(): StreamedResponse
+    {
+        $yesNo = fn (bool $v) => $v ? 'Ja' : 'Nein';
+
+        $rows = Tenant::query()
+            ->with(['meters' => fn ($q) => $q->orderBy('number')])
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Tenant $t) => [
+                $t->name,
+                $t->debtor_number,
+                $t->street,
+                $t->zip,
+                $t->city,
+                $t->phone,
+                $t->email,
+                $yesNo($t->is_active),
+                $t->active_from?->format('d.m.Y'),
+                $t->active_until?->format('d.m.Y'),
+                $yesNo($t->issues_invoices),
+                $yesNo($t->issues_invoices && $t->send_invoices_by_email),
+                $t->price_factor !== null ? number_format((float) $t->price_factor, 3, ',', '') : 'Standard',
+                $t->meters->where('is_active', true)->pluck('number')->join(', '),
+            ]);
+
+        return $this->csv('Mieter_'.now()->format('Y-m-d').'.csv', [
+            'Name', 'Kundennr.', 'Straße', 'PLZ', 'Ort', 'Telefon', 'E-Mail', 'Aktiv', 'Mieter seit', 'Mieter bis',
+            'Rechnungen ausstellen', 'Rechnung per E-Mail', 'Preisfaktor', 'Aktive Zähler',
+        ], $rows);
+    }
+
     private function status(Settlement $s): string
     {
         return match (true) {
             $s->type !== SettlementType::Invoice => $s->type->label().($s->isCancelled() ? ' (storniert)' : ''),
             $s->invoice_number !== null => $s->type->label(),
             $s->activeCollective() !== null => 'in Sammelrechnung',
+            ! $s->tenant->issues_invoices => 'Pauschale (ohne Rechnung)',
             $s->is_invoiced => 'extern abgerechnet',
             default => 'ohne Rechnung',
         };

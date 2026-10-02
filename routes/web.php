@@ -52,6 +52,8 @@ Route::middleware(['auth'])->group(function () {
         Route::get('difference/{year}', 'difference')->name('difference');
     });
 
+    Route::get('export/tenants', [ExportController::class, 'tenants'])->middleware('can:view-finance')->name('export.tenants');
+
     Route::middleware('can:manage')->group(function () {
         Route::get('export/settlements/{month}', [ExportController::class, 'settlements'])->name('export.settlements');
         Route::get('export/datev/{month}', [ExportController::class, 'datev'])->name('export.datev');

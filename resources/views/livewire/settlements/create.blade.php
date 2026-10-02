@@ -146,7 +146,11 @@ new #[Title('Abrechnen')] class extends Component {
         </div>
 
         <div class="mt-6 flex flex-wrap items-center justify-end gap-4">
-            <flux:checkbox wire:model="invoice" :label="__('Rechnung mit Rechnungsnummer erstellen')" />
+            @if ($c->tenant->issues_invoices)
+                <flux:checkbox wire:model="invoice" :label="__('Rechnung mit Rechnungsnummer erstellen')" />
+            @else
+                <flux:badge color="amber">{{ __('Pauschalmieter – nur Kontrollabrechnung, keine Rechnung') }}</flux:badge>
+            @endif
             <flux:button variant="primary" icon="check" wire:click="save" :disabled="! $p">{{ __('Abrechnen') }}</flux:button>
         </div>
     @endif

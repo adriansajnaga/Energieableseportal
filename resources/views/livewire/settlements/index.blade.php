@@ -63,7 +63,8 @@ new #[Title('Abrechnung')] class extends Component {
         Gate::authorize('manage');
         $settlement = $this->detail;
 
-        if (! $settlement || $settlement->type !== SettlementType::Invoice || $settlement->invoice_number || $settlement->activeCollective()) {
+        if (! $settlement || $settlement->type !== SettlementType::Invoice || $settlement->invoice_number
+            || $settlement->activeCollective() || ! $settlement->tenant->issues_invoices) {
             return;
         }
 
@@ -252,11 +253,27 @@ new #[Title('Abrechnung')] class extends Component {
         }
     }
 
+    /** Anzahl der als extern abgerechnet markierten Abrechnungen im Jahr des gewählten Monats. */
+    #[Computed]
+    public function externalCount(): int
+    {
+        return app(SettlementService::class)->externallyInvoicedQuery($this->period()->year)->count();
+    }
+
+    public function unmarkExternal(SettlementService $service): void
+    {
+        Gate::authorize('manage');
+        $count = $service->unmarkExternallyInvoiced($this->period()->year);
+        unset($this->candidates, $this->openCount, $this->openTenantsCount, $this->externalCount);
+
+        Flux::toast(__('Markierung bei :count Abrechnungen aufgehoben.', ['count' => $count]), variant: 'success');
+    }
+
     public function markExternal(SettlementService $service): void
     {
         Gate::authorize('manage');
         $count = $service->markExternallyInvoiced($this->period());
-        unset($this->candidates, $this->openCount, $this->openTenantsCount);
+        unset($this->candidates, $this->openCount, $this->openTenantsCount, $this->externalCount);
 
         Flux::toast(__(':count Abrechnungen als extern abgerechnet markiert.', ['count' => $count]), variant: 'success');
     }
@@ -351,6 +368,10 @@ new #[Title('Abrechnung')] class extends Component {
                     wire:confirm="{{ __('Alle :count noch nicht in Rechnung gestellten Abrechnungen bis einschließlich :month als extern abgerechnet markieren? Sie erscheinen danach nicht mehr bei den Sammelrechnungen.', ['count' => $this->openCount, 'month' => $this->period()->format('m/Y')]) }}">
                     {{ __('Bis :month als extern abgerechnet markieren (:count)', ['month' => $this->period()->format('m/Y'), 'count' => $this->openCount]) }}
                 </flux:menu.item>
+                <flux:menu.item icon="arrow-uturn-left" wire:click="unmarkExternal" :disabled="$this->externalCount === 0"
+                    wire:confirm="{{ __('Markierung „extern abgerechnet“ bei :count Abrechnungen im Jahr :year aufheben? Die Monate stehen danach wieder für Sammelrechnungen bereit.', ['count' => $this->externalCount, 'year' => $this->period()->year]) }}">
+                    {{ __('Markierung „extern abgerechnet“ im Jahr :year aufheben (:count)', ['year' => $this->period()->year, 'count' => $this->externalCount]) }}
+                </flux:menu.item>
                 <flux:menu.separator />
                 <flux:menu.item icon="envelope" wire:click="sendEmails" :disabled="$this->pendingEmailCount === 0"
                     wire:confirm="{{ __(':count Rechnungen dieses Monats jetzt an alle Mieter mit E-Mail-Versand senden?', ['count' => $this->pendingEmailCount]) }}">
@@ -414,6 +435,8 @@ new #[Title('Abrechnung')] class extends Component {
                         @endif
                         @if ($inCollective)
                             <flux:badge size="sm" color="sky">{{ __('Sammelrechnung') }} {{ $inCollective->formattedNumber() }}</flux:badge>
+                        @elseif ($s?->isFlatRate())
+                            <flux:badge size="sm" color="amber">{{ __('Pauschale') }}</flux:badge>
                         @elseif ($s && ! $s->is_invoiced)
                             <flux:badge size="sm" color="zinc">{{ __('ohne Rechnung') }}</flux:badge>
                         @elseif ($s && ! $s->invoice_number)
@@ -426,9 +449,9 @@ new #[Title('Abrechnung')] class extends Component {
                         @if ($s)
                             @if ($inCollective)
                                 <flux:button size="sm" variant="ghost" icon="document-text" :href="route('pdf.invoice', $inCollective)" target="_blank" :tooltip="$inCollective->formattedNumber()" />
-                            @elseif ($s->is_invoiced)
-                                <flux:button size="sm" variant="ghost" icon="document-text" :href="route('pdf.invoice', $s)" target="_blank" :tooltip="$s->formattedNumber()" />
-                            @else
+                            @elseif ($s->invoice_number || $s->isFlatRate())
+                                <flux:button size="sm" variant="ghost" icon="document-text" :href="route('pdf.invoice', $s)" target="_blank" :tooltip="$s->invoice_number ? $s->formattedNumber() : __('Kontrollabrechnung')" />
+                            @elseif (! $s->is_invoiced)
                                 @can('manage')
                                     <flux:button size="sm" icon="rectangle-stack" wire:click="openCollect({{ $s->tenant_id }})">{{ __('Sammelrechnung') }}</flux:button>
                                 @endcan
@@ -512,7 +535,7 @@ new #[Title('Abrechnung')] class extends Component {
                     <div class="flex flex-wrap gap-1">
                         @if ($d->isCancelled()) <flux:badge color="red">{{ __('Storniert') }}</flux:badge> @endif
                         @if (! $d->canBeEmailed())
-                            <flux:badge color="zinc">{{ $d->is_invoiced ? __('extern abgerechnet') : __('ohne Rechnung') }}</flux:badge>
+                            <flux:badge :color="$d->isFlatRate() ? 'amber' : 'zinc'">{{ $d->isFlatRate() ? __('Pauschale') : ($d->is_invoiced ? __('extern abgerechnet') : __('ohne Rechnung')) }}</flux:badge>
                         @endif
                         @if ($d->emailed_at)
                             <flux:badge color="green" icon="envelope">{{ __('Versendet am :date', ['date' => $d->emailed_at->format('d.m.Y H:i')]) }}</flux:badge>
@@ -553,6 +576,10 @@ new #[Title('Abrechnung')] class extends Component {
                         <div><dt class="text-zinc-500">{{ __('Zählerfaktor') }}</dt><dd>{{ $d->meter_factor }}</dd></div>
                         <div><dt class="text-zinc-500">{{ __('Preis') }}</dt><dd>{{ number_format((float) $d->unit_price, 2, ',', '.') }} €/kWh</dd></div>
                     </dl>
+                @endif
+
+                @if ($d->isFlatRate())
+                    <flux:callout icon="information-circle" color="amber" :heading="__('Pauschalmieter – Abrechnung nur zur Kontrolle, es wird keine Rechnung erstellt.')" />
                 @endif
 
                 <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800">
@@ -600,6 +627,10 @@ new #[Title('Abrechnung')] class extends Component {
                                 </flux:button>
                             </div>
                         </form>
+                    @elseif ($d->isFlatRate())
+                        <div class="flex justify-end">
+                            <flux:button size="sm" icon="document-text" :href="route('pdf.invoice', $d)" target="_blank">{{ __('Kontrollabrechnung (PDF)') }}</flux:button>
+                        </div>
                     @elseif ($d->activeCollective())
                         <flux:callout icon="information-circle" :text="__('Diese Abrechnung steht in der Sammelrechnung :number.', ['number' => $d->activeCollective()->formattedNumber()])" />
                     @elseif ($d->is_invoiced)
