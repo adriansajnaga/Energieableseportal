@@ -49,7 +49,7 @@ class InvoiceMail extends Mailable implements ShouldQueue
         return [
             Attachment::fromData(
                 fn () => app(PdfFactory::class)->invoices(collect([$this->settlement]))->content(),
-                'Rechnung_'.$this->settlement->formattedNumber().'.pdf',
+                $this->settlement->pdfFilename(),
             )->withMime('application/pdf'),
         ];
     }

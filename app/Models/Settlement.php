@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
 
 class Settlement extends Model
 {
@@ -163,6 +164,26 @@ class Settlement extends Model
     public function isFlatRate(): bool
     {
         return $this->type === SettlementType::Invoice && ! $this->invoice_number && ! $this->tenant->issues_invoices;
+    }
+
+    /** Dateiname der PDF, z. B. KuB_E-0001.pdf; ohne Rechnungsnummer mit Mieter und Monat. */
+    public function pdfFilename(): string
+    {
+        if ($this->invoice_number) {
+            return self::filePrefix().$this->formattedNumber().'.pdf';
+        }
+
+        $kind = $this->isFlatRate() ? 'Kontrollabrechnung' : 'Abrechnung';
+
+        return self::filePrefix().$kind.'_'.Str::slug($this->tenant->name).'_'.$this->period->format('Y-m').'.pdf';
+    }
+
+    /** Präfix aus den Einstellungen mit Unterstrich, z. B. "KuB_"; leer, wenn kein Präfix gesetzt ist. */
+    public static function filePrefix(): string
+    {
+        $prefix = preg_replace('/[^A-Za-z0-9_-]/', '', (string) Setting::get('pdf_file_prefix'));
+
+        return $prefix !== '' ? $prefix.'_' : '';
     }
 
     /** Nur Belege mit Rechnungsnummer können per E-Mail verschickt werden. */

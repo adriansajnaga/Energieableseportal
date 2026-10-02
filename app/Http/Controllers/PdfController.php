@@ -18,8 +18,12 @@ class PdfController extends Controller
     {
         Gate::authorize('view-finance');
 
-        return $this->pdf->invoices(collect([$settlement]))
-            ->inline(str($settlement->tenant->name)->slug().'_'.$settlement->period->format('Y-m').'_'.$settlement->formattedNumber().'.pdf');
+        $filename = $settlement->pdfFilename();
+        $document = $this->pdf->invoices(collect([$settlement]));
+        // Titel = Dateiname, damit der PDF-Viewer des Browsers beim Speichern denselben Namen vorschlägt.
+        $document->setTitle(pathinfo($filename, PATHINFO_FILENAME));
+
+        return $document->inline($filename);
     }
 
     public function invoices(string $month): Response
@@ -33,14 +37,14 @@ class PdfController extends Controller
             ->orderBy('invoice_number')
             ->get();
 
-        return $this->pdf->invoices($settlements)->inline('Rechnungen_'.$period->format('Y-m').'.pdf');
+        return $this->pdf->invoices($settlements)->inline(Settlement::filePrefix().'Rechnungen_'.$period->format('Y-m').'.pdf');
     }
 
     public function overview(string $month): Response
     {
         Gate::authorize('view-finance');
 
-        return $this->pdf->monthOverview($this->month($month))->inline('Abrechnungen_'.$month.'.pdf');
+        return $this->pdf->monthOverview($this->month($month))->inline(Settlement::filePrefix().'Abrechnungen_'.$month.'.pdf');
     }
 
     public function year(Meter $meter, Tenant $tenant, int $year): Response
@@ -48,7 +52,7 @@ class PdfController extends Controller
         Gate::authorize('view-finance');
 
         return $this->pdf->year($meter, $tenant, $year)
-            ->inline('Jahresuebersicht_'.str($tenant->name)->slug().'_'.$year.'.pdf');
+            ->inline(Settlement::filePrefix().'Jahresuebersicht_'.str($tenant->name)->slug().'_'.$year.'.pdf');
     }
 
     public function consumption(int $year): Response

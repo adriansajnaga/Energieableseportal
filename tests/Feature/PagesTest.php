@@ -406,3 +406,16 @@ it('shows a flat-rate tenant settlement as control without invoice actions', fun
 
     $this->actingAs($this->admin)->get(route('pdf.invoice', $settlement))->assertOk();
 });
+
+it('names invoice PDFs after the invoice number with the configured prefix', function () {
+    $settlement = Settlement::whereNotNull('invoice_number')->orderBy('invoice_number')->first();
+
+    $this->actingAs($this->admin)->get(route('pdf.invoice', $settlement))
+        ->assertHeader('Content-Disposition', 'inline; filename="KuB_'.$settlement->formattedNumber().'.pdf"');
+
+    $mail = new InvoiceMail($settlement);
+    expect($mail->attachments()[0]->as)->toBe('KuB_'.$settlement->formattedNumber().'.pdf');
+
+    Setting::put('pdf_file_prefix', '');
+    expect($settlement->fresh()->pdfFilename())->toBe($settlement->formattedNumber().'.pdf');
+});

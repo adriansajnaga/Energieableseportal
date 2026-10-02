@@ -36,6 +36,7 @@ new #[Title('Einstellungen')] class extends Component {
             'values.vat_rate' => ['required', 'numeric', 'min:0', 'max:100'],
             'values.invoice_prefix' => ['nullable', 'string', 'max:10'],
             'values.invoice_digits' => ['required', 'integer', 'min:1', 'max:10'],
+            'values.pdf_file_prefix' => ['nullable', 'string', 'max:20', 'regex:/^[A-Za-z0-9_-]*$/'],
             'values.reading_deadline_day' => ['required', 'integer', 'min:1', 'max:28'],
             'values.reminder_day' => ['required', 'integer', 'min:0', 'max:28'],
             'values.plausibility_multiplier' => ['required', 'numeric', 'min:1', 'max:20'],
@@ -129,6 +130,7 @@ new #[Title('Einstellungen')] class extends Component {
                 <flux:input wire:model="values.vat_rate" :label="__('Umsatzsteuer (%)')" type="number" step="0.01" />
                 <flux:input wire:model="values.invoice_prefix" :label="__('Präfix Rechnungsnummer')" />
                 <flux:input wire:model="values.invoice_digits" :label="__('Stellen Rechnungsnummer')" type="number" />
+                <flux:input wire:model="values.pdf_file_prefix" :label="__('Präfix PDF-Dateiname')" :description="__('z. B. KuB → KuB_E-0001.pdf (nur Buchstaben, Ziffern, - und _)')" />
             </div>
             <flux:text class="mt-2">{{ __('Letzte vergebene Rechnungsnummer') }}: {{ $values['invoice_counter'] }}</flux:text>
         </flux:fieldset>

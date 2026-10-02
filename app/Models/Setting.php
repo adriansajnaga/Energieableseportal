@@ -22,6 +22,8 @@ class Setting extends Model
         'invoice_prefix' => 'E-',
         'invoice_digits' => '4',
         'invoice_counter' => '0',
+        // Präfix für die Dateinamen der PDF-Rechnungen, z. B. KuB_E-0001.pdf
+        'pdf_file_prefix' => 'KuB',
         'reading_deadline_day' => '10',
         'reminder_day' => '3',
         'plausibility_multiplier' => '3',
