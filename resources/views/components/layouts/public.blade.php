@@ -10,6 +10,7 @@
                 <x-app-logo />
             </div>
             {{ $slot }}
+            <x-app-footer />
         </div>
         @fluxScripts
     </body>

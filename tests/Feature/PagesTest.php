@@ -419,3 +419,11 @@ it('names invoice PDFs after the invoice number with the configured prefix', fun
     Setting::put('pdf_file_prefix', '');
     expect($settlement->fresh()->pdfFilename())->toBe($settlement->formattedNumber().'.pdf');
 });
+
+it('shows the copyright footer on app, login and public pages', function () {
+    $footer = 'ASCOMM Adrian Sajnaga';
+    $this->actingAs($this->admin)->get('/dashboard')->assertSee($footer);
+    auth()->logout();
+    $this->get('/login')->assertSee($footer);
+    $this->get(route('public.reading', Meter::first()->qr_token))->assertSee($footer);
+});
