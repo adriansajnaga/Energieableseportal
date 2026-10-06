@@ -37,8 +37,10 @@ class QrLabelImage
         $white = imagecolorallocate($img, 255, 255, 255);
         $black = imagecolorallocate($img, 20, 20, 20);
         $grey = imagecolorallocate($img, 110, 110, 110);
-        $green = imagecolorallocate($img, 115, 179, 86);
-        $greenLight = imagecolorallocate($img, 232, 245, 233);
+        // Akzentfarbe je Medium (Strom grün, Kaltwasser blau, Warmwasser rot).
+        $rgb = $meter->medium->labelRgb();
+        $green = imagecolorallocate($img, ...$rgb['accent']);
+        $greenLight = imagecolorallocate($img, ...$rgb['light']);
         imagefill($img, 0, 0, $white);
 
         $regular = resource_path('fonts/DejaVuSans.ttf');
@@ -60,7 +62,8 @@ class QrLabelImage
 
         $this->centered($img, $bold, 54, $black, 'Zählerstand melden', $y);
         $y += 75;
-        $this->centered($img, $bold, 40, $black, 'Zähler '.$meter->number, $y);
+        $title = $meter->isWater() ? $meter->medium->meterName('de').' '.$meter->number : 'Zähler '.$meter->number;
+        $this->centered($img, $bold, 40, $black, $title, $y);
         if ($meter->location) {
             $y += 55;
             $this->centered($img, $regular, 30, $grey, $meter->location, $y);

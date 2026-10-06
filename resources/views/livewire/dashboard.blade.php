@@ -152,7 +152,7 @@ new #[Title('Dashboard')] class extends Component {
             <ul class="mt-3 divide-y divide-zinc-200 dark:divide-zinc-700">
                 @foreach ($this->pendingReadings as $reading)
                     <li class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-                        <span><strong>{{ $reading->meter->number }}</strong> · {{ $reading->meter->tenant?->name }} · {{ $reading->read_on->format('d.m.Y') }} · {{ number_format($reading->value, 0, ',', '.') }} kWh</span>
+                        <span><strong>{{ $reading->meter->number }}</strong> · {{ $reading->meter->tenant?->name }} · {{ $reading->read_on->format('d.m.Y') }} · {{ $reading->meter->formatValue($reading->value, true) }}</span>
                         <span class="text-amber-600">{{ $reading->check_note }}</span>
                     </li>
                 @endforeach

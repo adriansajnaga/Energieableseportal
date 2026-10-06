@@ -6,6 +6,7 @@ use App\Services\Statistics;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
 /*
@@ -13,6 +14,10 @@ use Livewire\Volt\Component;
  * aus den Einstellungen. Zeigt nur Zähler ohne Ablesung im laufenden Monat.
  */
 new #[Layout('components.layouts.public')] #[Title('Ablesestatus')] class extends Component {
+    /** '' = alle, 'electricity' = Strom, 'water' = Wasser. */
+    #[Url(as: 'art')]
+    public string $type = '';
+
     public function mount(string $token): void
     {
         $secret = (string) Setting::get('status_token');
@@ -23,13 +28,13 @@ new #[Layout('components.layouts.public')] #[Title('Ablesestatus')] class extend
     #[Computed]
     public function missing()
     {
-        return app(Statistics::class)->metersWithoutReading(now());
+        return app(Statistics::class)->metersWithoutReading(now(), $this->type);
     }
 
     #[Computed]
     public function total(): int
     {
-        return Meter::query()->active()->count();
+        return Meter::query()->active()->ofType($this->type)->count();
     }
 }; ?>
 
@@ -46,6 +51,14 @@ new #[Layout('components.layouts.public')] #[Title('Ablesestatus')] class extend
         </flux:badge>
     </div>
 
+    <div class="mb-4 flex flex-wrap gap-3">
+        <flux:select wire:model.live="type" class="max-w-56">
+            <flux:select.option value="">{{ __('Alle Zählerarten') }}</flux:select.option>
+            <flux:select.option value="electricity">{{ __('Strom') }}</flux:select.option>
+            <flux:select.option value="water">{{ __('Wasser (kalt und warm)') }}</flux:select.option>
+        </flux:select>
+    </div>
+
     @if ($this->missing->isEmpty())
         <flux:callout icon="check-circle" color="green" :heading="__('Alle Zähler sind für diesen Monat abgelesen.')" />
     @else
@@ -53,7 +66,10 @@ new #[Layout('components.layouts.public')] #[Title('Ablesestatus')] class extend
             @foreach ($this->missing as $i => $meter)
                 <flux:card class="flex items-center justify-between gap-3" wire:key="missing-{{ $meter->id }}">
                     <div class="min-w-0">
-                        <div class="font-semibold">{{ $i + 1 }}. {{ $meter->number }}</div>
+                        <div class="font-semibold">
+                            {{ $loop->iteration }}. {{ $meter->number }}
+                            @if ($meter->isWater()) <flux:badge size="sm" :color="$meter->medium->color()" class="ms-1">{{ $meter->medium->label() }}</flux:badge> @endif
+                        </div>
                         <div class="truncate text-sm text-zinc-500">{{ $meter->tenant?->name ?? __('Kein Mieter') }} · {{ $meter->location }}</div>
                         @if ($meter->tenant?->phone)
                             <a href="tel:{{ $meter->tenant->phone }}" class="text-sm text-emerald-600">{{ $meter->tenant->phone }}</a>

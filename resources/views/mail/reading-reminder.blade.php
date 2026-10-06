@@ -5,10 +5,10 @@
 Folgende Zähler sind in diesem Monat noch nicht abgelesen:
 
 <x-mail::table>
-| Zähler | Mieter | Ort |
-|:--|:--|:--|
+| Zähler | Art | Mieter | Ort |
+|:--|:--|:--|:--|
 @foreach ($meters as $meter)
-| {{ $meter->number }} | {{ $meter->tenant?->name }} | {{ $meter->location }} |
+| {{ $meter->number }} | {{ $meter->medium->label() }} | {{ $meter->tenant?->name }} | {{ $meter->location }} |
 @endforeach
 </x-mail::table>
 
@@ -20,7 +20,7 @@ bitte übermitteln Sie Ihren Zählerstand bis zum {{ $deadline }}. des Monats. E
 
 @foreach ($meters as $meter)
 <x-mail::button :url="$meter->tenantUrl()">
-Zähler {{ $meter->number }} ablesen
+{{ $meter->isWater() ? $meter->medium->meterName('de') : 'Zähler' }} {{ $meter->number }} ablesen
 </x-mail::button>
 @endforeach
 @endif

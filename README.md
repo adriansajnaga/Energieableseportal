@@ -1,6 +1,6 @@
 # ASCOMM Energie – Energieableseportal
 
-Rozliczanie energii elektrycznej dla najemców: odczyty liczników (QR, Hausmeister, administracja), miesięczne rozliczenia z fakturami PDF, ceny prądu z faktur dostawcy dla liczników głównych, raporty i eksport do księgowości.
+Rozliczanie energii elektrycznej dla najemców i odczyty wodomierzy: odczyty liczników (QR, Hausmeister, administracja), miesięczne rozliczenia z fakturami PDF, ceny prądu z faktur dostawcy dla liczników głównych, raporty i eksport do księgowości.
 
 Stos: Laravel 12, Livewire 4 + Volt, Flux UI, Tailwind 4, TCPDF, Pest. Interfejs po niemiecku i polsku, faktury po niemiecku.
 
@@ -43,6 +43,13 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
   - codziennie o 8:00: `/bin/bash ~/Energieableseportal/deploy/artisan.sh energie:reading-reminders` (przypomnienia o odczytach).
 - Wdrożenie przez cPanel Git („Deploy HEAD Commit”) uruchamia `deploy/deploy.sh`: composer, kopia `public/` do `public_html/em`, migracje, cache. Log: `storage/logs/deploy.log`.
 - Nie używaj `php artisan optimize` ani `route:cache`: w podkatalogu (`/em/`) cache tras psuje stronę startową (405).
+
+## Wodomierze (tylko odczyty)
+
+- Przy liczniku wybiera się rodzaj: prąd, woda zimna (Kaltwasser), woda ciepła (Warmwasser). Dla wodomierzy podaje się rok legalizacji (Eichjahr); lista liczników pokazuje, do kiedy legalizacja jest ważna (woda zimna 6 lat, ciepła 5 lat), po terminie na czerwono.
+- Stany wodomierzy wpisuje się w m³ z przecinkiem lub kropką (np. `123,456`), w bazie są zapisywane w litrach jako liczby całkowite (`readings.value`).
+- Wodomierze mają te same funkcje odczytu co prąd: kod QR i etykiety (niebieskie dla wody zimnej, czerwone dla ciepłej), status odczytów z filtrem rodzaju, przypomnienia e-mail, kontrolę wiarygodności.
+- Wodomierze nie trafiają do rozliczeń prądu, cen prądu ani raportów liczników głównych. Rozliczanie wody jest do zrobienia osobno.
 
 ## Role
 

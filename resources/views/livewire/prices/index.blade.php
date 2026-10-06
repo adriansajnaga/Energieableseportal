@@ -30,7 +30,7 @@ new #[Title('Strompreise')] class extends Component {
     #[Computed]
     public function mainMeters()
     {
-        return Meter::query()->main()->active()->orderBy('number')->get();
+        return Meter::query()->main()->electricity()->active()->orderBy('number')->get();
     }
 
     #[Computed]

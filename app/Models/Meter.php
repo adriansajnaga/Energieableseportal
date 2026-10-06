@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Medium;
 use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,15 +16,21 @@ class Meter extends Model
     use HasFactory, LogsActivity;
 
     protected $fillable = [
-        'number', 'location', 'factor', 'is_main', 'parent_id', 'tenant_id', 'is_active',
+        'number', 'medium', 'location', 'calibration_year', 'factor', 'is_main', 'parent_id', 'tenant_id', 'is_active',
         'qr_token', 'legacy_hash', 'replaced_by_id', 'installed_on', 'removed_on', 'legacy_id',
     ];
 
     protected $hidden = ['qr_token'];
 
+    protected $attributes = [
+        'medium' => 'electricity',
+    ];
+
     protected function casts(): array
     {
         return [
+            'medium' => Medium::class,
+            'calibration_year' => 'integer',
             'factor' => 'integer',
             'is_main' => 'boolean',
             'is_active' => 'boolean',
@@ -92,6 +99,64 @@ class Meter extends Model
     public function scopeMain(Builder $query): void
     {
         $query->where('is_main', true);
+    }
+
+    /** Nur Stromzähler (Abrechnung, Strompreise, Berichte). */
+    public function scopeElectricity(Builder $query): void
+    {
+        $query->where('medium', Medium::Electricity->value);
+    }
+
+    public function scopeWater(Builder $query): void
+    {
+        $query->whereIn('medium', array_map(fn (Medium $m) => $m->value, Medium::water()));
+    }
+
+    /** Filter der Listen: '' = alle, 'water' = Kalt- und Warmwasser, sonst ein Medium. */
+    public function scopeOfType(Builder $query, ?string $type): void
+    {
+        if ($type === 'water') {
+            $query->water();
+        } elseif ($medium = Medium::tryFrom((string) $type)) {
+            $query->where('medium', $medium->value);
+        }
+    }
+
+    public function isWater(): bool
+    {
+        return $this->medium->isWater();
+    }
+
+    public function unit(): string
+    {
+        return $this->medium->unit();
+    }
+
+    /** Gespeicherten Zählerstand anzeigen (Wasser: Liter -> m³ mit 3 Nachkommastellen). */
+    public function formatValue(?int $value, bool $withUnit = false): string
+    {
+        return $value === null ? '–' : $this->medium->format($value, $withUnit);
+    }
+
+    /** Eingabe in gespeicherten Zählerstand umrechnen, null bei ungültiger Eingabe. */
+    public function parseValue(string|int|float|null $input): ?int
+    {
+        return $this->medium->parse($input);
+    }
+
+    /** Letztes Jahr der Eichgültigkeit (Wasserzähler), null wenn unbekannt. */
+    public function calibrationValidUntil(): ?int
+    {
+        $years = $this->medium->calibrationYears();
+
+        return $years && $this->calibration_year ? $this->calibration_year + $years : null;
+    }
+
+    public function calibrationExpired(?int $year = null): bool
+    {
+        $until = $this->calibrationValidUntil();
+
+        return $until !== null && $until < ($year ?? (int) now()->year);
     }
 
     /** Der Hauptzähler, dessen Strompreis für diesen Zähler gilt. */

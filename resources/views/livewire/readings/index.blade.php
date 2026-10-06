@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\Medium;
 use App\Enums\ReadingSource;
 use App\Enums\ReadingStatus;
 use App\Models\Meter;
 use App\Models\Reading;
 use App\Models\Settlement;
+use App\Rules\MeterValue;
 use App\Services\ReadingService;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
@@ -33,6 +35,10 @@ new #[Title('Zählerstände')] class extends Component {
     #[Url(as: 'monat')]
     public string $monthFilter = '';
 
+    /** '' = alle, 'water' = Kalt- und Warmwasser, sonst ein Medium. */
+    #[Url(as: 'art')]
+    public string $type = '';
+
     public bool $hideSystem = true;
 
     public ?int $editingId = null;
@@ -45,7 +51,7 @@ new #[Title('Zählerstände')] class extends Component {
 
     public function updated($property): void
     {
-        if (in_array($property, ['search', 'status', 'meterFilter', 'monthFilter', 'hideSystem'])) {
+        if (in_array($property, ['search', 'status', 'meterFilter', 'monthFilter', 'hideSystem', 'type'])) {
             $this->resetPage();
         }
     }
@@ -66,6 +72,7 @@ new #[Title('Zählerstände')] class extends Component {
                 $q->whereBetween('read_on', [$month->toDateString(), $month->endOfMonth()->toDateString()]);
             })
             ->when($this->hideSystem, fn ($q) => $q->where('source', '!=', ReadingSource::System))
+            ->when($this->type, fn ($q) => $q->whereHas('meter', fn ($q) => $q->ofType($this->type)))
             ->orderByDesc('read_on')
             ->orderByDesc('id')
             ->paginate(30);
@@ -75,6 +82,12 @@ new #[Title('Zählerstände')] class extends Component {
     public function meters()
     {
         return Meter::query()->active()->with('tenant')->orderBy('number')->get();
+    }
+
+    /** Medium des im Formular gewählten Zählers (Einheit und Nachkommastellen der Eingabe). */
+    public function selectedMedium(): Medium
+    {
+        return $this->meter_id ? (Meter::find($this->meter_id)?->medium ?? Medium::Electricity) : Medium::Electricity;
     }
 
     #[On('record-reading')]
@@ -95,7 +108,7 @@ new #[Title('Zählerstände')] class extends Component {
         $this->resetForm();
         $this->editingId = $reading->id;
         $this->meter_id = (string) $reading->meter_id;
-        $this->value = (string) $reading->value;
+        $this->value = $reading->meter->medium->input($reading->value);
         $this->read_on = $reading->read_on->toDateString();
         $this->is_base = $reading->is_base;
         Flux::modal('reading-form')->show();
@@ -107,7 +120,7 @@ new #[Title('Zählerstände')] class extends Component {
 
         $this->validate([
             'meter_id' => ['required', 'exists:meters,id'],
-            'value' => ['required', 'integer', 'min:0'],
+            'value' => ['required', new MeterValue($this->selectedMedium())],
             'read_on' => ['required', 'date', 'before_or_equal:today'],
             'photo' => ['nullable', 'image', 'max:10240'],
             'is_base' => ['boolean'],
@@ -115,14 +128,15 @@ new #[Title('Zählerstände')] class extends Component {
 
         $user = Auth::user();
         $date = CarbonImmutable::parse($this->read_on);
+        $value = $this->selectedMedium()->parse($this->value);
 
         if ($this->editingId) {
             Gate::authorize('manage');
-            $reading = $service->update(Reading::findOrFail($this->editingId), (int) $this->value, $date, $this->is_base, $this->photo, $user);
+            $reading = $service->update(Reading::findOrFail($this->editingId), $value, $date, $this->is_base, $this->photo, $user);
         } else {
             $reading = $service->record(
                 Meter::findOrFail($this->meter_id),
-                (int) $this->value,
+                $value,
                 $date,
                 $user->isAdmin() ? ReadingSource::Admin : ReadingSource::Caretaker,
                 photo: $this->photo,
@@ -201,6 +215,13 @@ new #[Title('Zählerstände')] class extends Component {
             @endforeach
         </flux:select>
         <flux:input wire:model.live="monthFilter" type="month" class="max-w-44" />
+        <flux:select wire:model.live="type" class="max-w-56">
+            <flux:select.option value="">{{ __('Alle Zählerarten') }}</flux:select.option>
+            <flux:select.option value="electricity">{{ __('Strom') }}</flux:select.option>
+            <flux:select.option value="water">{{ __('Wasser (kalt und warm)') }}</flux:select.option>
+            <flux:select.option value="cold_water">{{ __('Kaltwasser') }}</flux:select.option>
+            <flux:select.option value="hot_water">{{ __('Warmwasser') }}</flux:select.option>
+        </flux:select>
         <flux:checkbox wire:model.live="hideSystem" :label="__('Berechnete Stände ausblenden')" />
     </div>
 
@@ -209,7 +230,7 @@ new #[Title('Zählerstände')] class extends Component {
             <flux:table.column>{{ __('Datum') }}</flux:table.column>
             <flux:table.column>{{ __('Zähler') }}</flux:table.column>
             <flux:table.column>{{ __('Mieter') }}</flux:table.column>
-            <flux:table.column align="end">{{ __('Stand (kWh)') }}</flux:table.column>
+            <flux:table.column align="end">{{ __('Stand') }}</flux:table.column>
             <flux:table.column>{{ __('Ableser') }}</flux:table.column>
             <flux:table.column align="center">{{ __('Foto') }}</flux:table.column>
             <flux:table.column>{{ __('Status') }}</flux:table.column>
@@ -222,9 +243,12 @@ new #[Title('Zählerstände')] class extends Component {
                         {{ $reading->read_on->format('d.m.Y') }}
                         @if ($reading->is_base) <flux:badge size="sm" color="sky">{{ __('Basis') }}</flux:badge> @endif
                     </flux:table.cell>
-                    <flux:table.cell variant="strong"><flux:link :href="route('meters.show', $reading->meter_id)" wire:navigate>{{ $reading->meter->number }}</flux:link></flux:table.cell>
+                    <flux:table.cell variant="strong">
+                        <flux:link :href="route('meters.show', $reading->meter_id)" wire:navigate>{{ $reading->meter->number }}</flux:link>
+                        @if ($reading->meter->isWater()) <flux:badge size="sm" :color="$reading->meter->medium->color()" class="ms-1">{{ $reading->meter->medium->label() }}</flux:badge> @endif
+                    </flux:table.cell>
                     <flux:table.cell>{{ $reading->tenant?->name ?? '–' }}</flux:table.cell>
-                    <flux:table.cell align="end">{{ number_format($reading->value, 0, ',', '.') }}</flux:table.cell>
+                    <flux:table.cell align="end" class="whitespace-nowrap">{{ $reading->meter->formatValue($reading->value, true) }}</flux:table.cell>
                     <flux:table.cell>
                         {{ $reading->reader_name }}
                         <br><span class="text-xs text-zinc-500">{{ $reading->source->label() }}</span>
@@ -267,19 +291,22 @@ new #[Title('Zählerstände')] class extends Component {
         <form wire:submit="save" class="space-y-5">
             <flux:heading size="lg">{{ $editingId ? __('Ablesung bearbeiten') : __('Zähler ablesen') }}</flux:heading>
 
-            <flux:select wire:model="meter_id" :label="__('Zähler')" :disabled="(bool) $editingId" required>
+            <flux:select wire:model.live="meter_id" :label="__('Zähler')" :disabled="(bool) $editingId" required>
                 <flux:select.option value="">–</flux:select.option>
                 @foreach ($this->meters as $meter)
-                    <flux:select.option :value="$meter->id">{{ $meter->number }} – {{ $meter->tenant?->name ?? $meter->location }}</flux:select.option>
+                    <flux:select.option :value="$meter->id">{{ $meter->number }}{{ $meter->isWater() ? ' ('.$meter->medium->label().')' : '' }} – {{ $meter->tenant?->name ?? $meter->location }}</flux:select.option>
                 @endforeach
             </flux:select>
             <div class="grid gap-4 sm:grid-cols-2">
-                <flux:input wire:model="value" :label="__('Zählerstand (kWh, ohne Nachkommastellen)')" type="number" min="0" required />
+                <x-meter-value-input wire:model="value" :medium="$this->selectedMedium()" :label="__('Zählerstand')"
+                    :description="$this->selectedMedium()->isWater() ? __('Mit allen Nachkommastellen') : __('Ohne Nachkommastellen')" />
                 <flux:input wire:model="read_on" :label="__('Ablesedatum')" type="date" required />
             </div>
             <flux:input wire:model="photo" :label="__('Foto vom Zählerstand')" type="file" accept="image/*" capture="environment" />
             @can('manage')
-                <flux:checkbox wire:model="is_base" :label="__('Als Anfangsstand (Abrechnungsgrundlage) verwenden')" />
+                @unless ($this->selectedMedium()->isWater())
+                    <flux:checkbox wire:model="is_base" :label="__('Als Anfangsstand (Abrechnungsgrundlage) verwenden')" />
+                @endunless
             @endcan
 
             <div class="flex justify-end gap-2">

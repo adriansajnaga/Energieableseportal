@@ -1,7 +1,7 @@
 <table cellspacing="0" cellpadding="4" border="0.5">
     <tr style="background-color:#e2e2e2;">
         <td width="8%" rowspan="2" align="center"><br><br><br><b>{{ $number }}</b></td>
-        <td width="92%"><b>Zähler-Nummer: {{ $meter->number }}</b></td>
+        <td width="92%"><b>{{ $meter->isWater() ? $meter->medium->meterName('de') : 'Zähler' }}-Nummer: {{ $meter->number }}</b></td>
     </tr>
     <tr>
         <td height="112">
@@ -10,7 +10,11 @@
                 <tr><td>Mieter:</td><td><b>{{ $meter->tenant?->name }}</b></td><td></td></tr>
                 <tr><td>Telefon:</td><td><b>{{ $meter->tenant?->phone }}</b></td><td></td></tr>
                 <tr><td>Hauptzähler:</td><td><b>{{ $meter->is_main ? 'Ja' : $meter->parent?->number }}</b></td><td></td></tr>
-                <tr><td>Faktor:</td><td><b>{{ $meter->factor }}</b></td><td></td></tr>
+                @if ($meter->isWater())
+                    <tr><td>Eichjahr:</td><td><b>{{ $meter->calibration_year }}</b></td><td></td></tr>
+                @else
+                    <tr><td>Faktor:</td><td><b>{{ $meter->factor }}</b></td><td></td></tr>
+                @endif
             </table>
         </td>
     </tr>

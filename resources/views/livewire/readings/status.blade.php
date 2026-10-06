@@ -4,6 +4,7 @@ use App\Enums\ReadingSource;
 use App\Enums\ReadingStatus;
 use App\Models\Meter;
 use App\Models\Setting;
+use App\Rules\MeterValue;
 use App\Services\ReadingService;
 use App\Services\Statistics;
 use Carbon\CarbonImmutable;
@@ -12,11 +13,16 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 
 new #[Title('Ablesestatus')] class extends Component {
     use WithFileUploads;
+
+    /** '' = alle, 'electricity' = Strom, 'water' = Wasser. */
+    #[Url(as: 'art')]
+    public string $type = '';
 
     public ?int $meterId = null;
     public string $value = '';
@@ -25,13 +31,19 @@ new #[Title('Ablesestatus')] class extends Component {
     #[Computed]
     public function missing()
     {
-        return app(Statistics::class)->metersWithoutReading(now());
+        return app(Statistics::class)->metersWithoutReading(now(), $this->type);
     }
 
     #[Computed]
     public function total(): int
     {
-        return Meter::query()->active()->count();
+        return Meter::query()->active()->ofType($this->type)->count();
+    }
+
+    #[Computed]
+    public function meter(): ?Meter
+    {
+        return $this->meterId ? Meter::find($this->meterId) : null;
     }
 
     public function open(int $meterId): void
@@ -40,20 +52,23 @@ new #[Title('Ablesestatus')] class extends Component {
         $this->reset(['value', 'photo']);
         $this->resetValidation();
         $this->meterId = $meterId;
+        unset($this->meter);
         Flux::modal('quick-reading')->show();
     }
 
     public function save(ReadingService $service): void
     {
         Gate::authorize('record-readings');
+        $meter = Meter::findOrFail($this->meterId);
+
         $this->validate([
-            'value' => ['required', 'integer', 'min:0'],
+            'value' => ['required', new MeterValue($meter->medium)],
             'photo' => ['nullable', 'image', 'max:10240'],
         ]);
 
         $reading = $service->record(
-            Meter::findOrFail($this->meterId),
-            (int) $this->value,
+            $meter,
+            $meter->parseValue($this->value),
             CarbonImmutable::today(),
             Auth::user()->isAdmin() ? ReadingSource::Admin : ReadingSource::Caretaker,
             photo: $this->photo,
@@ -76,6 +91,14 @@ new #[Title('Ablesestatus')] class extends Component {
         </flux:badge>
     </x-page-header>
 
+    <div class="mb-4 flex flex-wrap gap-3">
+        <flux:select wire:model.live="type" class="max-w-56">
+            <flux:select.option value="">{{ __('Alle Zählerarten') }}</flux:select.option>
+            <flux:select.option value="electricity">{{ __('Strom') }}</flux:select.option>
+            <flux:select.option value="water">{{ __('Wasser (kalt und warm)') }}</flux:select.option>
+        </flux:select>
+    </div>
+
     @if ($this->missing->isEmpty())
         <flux:callout icon="check-circle" color="green" :heading="__('Alle Zähler sind für diesen Monat abgelesen.')" />
     @else
@@ -83,7 +106,10 @@ new #[Title('Ablesestatus')] class extends Component {
             @foreach ($this->missing as $i => $meter)
                 <flux:card class="flex items-center justify-between gap-3" wire:key="missing-{{ $meter->id }}">
                     <div class="min-w-0">
-                        <div class="font-semibold">{{ $i + 1 }}. {{ $meter->number }}</div>
+                        <div class="font-semibold">
+                            {{ $loop->iteration }}. {{ $meter->number }}
+                            @if ($meter->isWater()) <flux:badge size="sm" :color="$meter->medium->color()" class="ms-1">{{ $meter->medium->label() }}</flux:badge> @endif
+                        </div>
                         <div class="truncate text-sm text-zinc-500">{{ $meter->tenant?->name ?? __('Kein Mieter') }} · {{ $meter->location }}</div>
                         @if ($meter->tenant?->phone)
                             <a href="tel:{{ $meter->tenant->phone }}" class="text-sm text-emerald-600">{{ $meter->tenant->phone }}</a>
@@ -100,10 +126,15 @@ new #[Title('Ablesestatus')] class extends Component {
     <flux:modal name="quick-reading" class="w-full md:w-md">
         <form wire:submit="save" class="space-y-5">
             <flux:heading size="lg">{{ __('Zähler ablesen') }}</flux:heading>
-            @if ($meterId)
-                <flux:text>{{ \App\Models\Meter::find($meterId)?->label() }} · {{ __('Letzter Stand') }}: {{ number_format(\App\Models\Meter::find($meterId)?->latestReading()?->value ?? 0, 0, ',', '.') }} kWh</flux:text>
+            @if ($this->meter)
+                <flux:text>
+                    {{ $this->meter->label() }}
+                    @if ($this->meter->isWater()) · {{ $this->meter->medium->label() }} @endif
+                    · {{ __('Letzter Stand') }}: {{ $this->meter->formatValue($this->meter->latestReading()?->value ?? 0, true) }}
+                </flux:text>
+                <x-meter-value-input wire:model="value" :medium="$this->meter->medium" :label="__('Zählerstand')" autofocus
+                    :description="$this->meter->isWater() ? __('Mit allen Nachkommastellen') : __('Ohne Nachkommastellen')" />
             @endif
-            <flux:input wire:model="value" :label="__('Zählerstand (kWh, ohne Nachkommastellen)')" type="number" inputmode="numeric" min="0" required autofocus />
             <flux:input wire:model="photo" :label="__('Foto vom Zählerstand')" type="file" accept="image/*" capture="environment" />
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>

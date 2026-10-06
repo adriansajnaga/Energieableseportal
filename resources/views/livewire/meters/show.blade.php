@@ -2,6 +2,7 @@
 
 use App\Models\Meter;
 use App\Models\Tenant;
+use App\Rules\MeterValue;
 use App\Services\MeterService;
 use App\Support\QrCode;
 use Carbon\CarbonImmutable;
@@ -22,6 +23,7 @@ new class extends Component {
     public string $replace_date = '';
     public string $final_value = '';
     public string $initial_value = '0';
+    public string $new_calibration_year = '';
 
     public function mount(Meter $meter): void
     {
@@ -67,7 +69,8 @@ new class extends Component {
             $prev = $readings[$i];
             $days = max(1, (int) $prev->read_on->diffInDays($r->read_on));
 
-            return round(($r->value - $prev->value) / $days, 2);
+            // Wasser in Litern pro Tag, Strom in kWh pro Tag.
+            return round(($r->value - $prev->value) / $days, $this->meter->isWater() ? 0 : 2);
         });
 
         return [
@@ -75,7 +78,7 @@ new class extends Component {
             'data' => [
                 'labels' => $readings->slice(1)->map(fn ($r) => $r->read_on->format('d.m.y'))->values(),
                 'datasets' => [[
-                    'label' => __('Ø Verbrauch pro Tag (kWh)'),
+                    'label' => $this->meter->isWater() ? __('Ø Verbrauch pro Tag (Liter)') : __('Ø Verbrauch pro Tag (kWh)'),
                     'data' => $daily,
                     'borderColor' => '#10b981',
                     'backgroundColor' => 'rgba(16,185,129,0.15)',
@@ -113,7 +116,7 @@ new class extends Component {
         $this->validate([
             'change_tenant_id' => ['nullable', 'exists:tenants,id'],
             'change_date' => ['required', 'date'],
-            'change_value' => ['required', 'integer', 'min:0'],
+            'change_value' => ['required', new MeterValue($this->meter->medium)],
         ]);
 
         try {
@@ -121,7 +124,7 @@ new class extends Component {
                 $this->meter,
                 $this->change_tenant_id ? Tenant::find($this->change_tenant_id) : null,
                 CarbonImmutable::parse($this->change_date),
-                (int) $this->change_value,
+                $this->meter->parseValue($this->change_value),
                 Auth::user(),
             );
         } catch (RuntimeException $e) {
@@ -141,6 +144,7 @@ new class extends Component {
         Gate::authorize('manage');
         $this->reset(['new_number', 'final_value']);
         $this->initial_value = '0';
+        $this->new_calibration_year = $this->meter->isWater() ? (string) now()->year : '';
         $this->replace_date = now()->toDateString();
         Flux::modal('meter-replace')->show();
     }
@@ -152,12 +156,21 @@ new class extends Component {
         $this->validate([
             'new_number' => ['required', 'string', 'max:255'],
             'replace_date' => ['required', 'date'],
-            'final_value' => ['required', 'integer', 'min:0'],
-            'initial_value' => ['required', 'integer', 'min:0'],
+            'final_value' => ['required', new MeterValue($this->meter->medium)],
+            'initial_value' => ['required', new MeterValue($this->meter->medium)],
+            'new_calibration_year' => ['nullable', 'integer', 'min:1980', 'max:'.(now()->year + 1)],
         ]);
 
         try {
-            $new = $service->replace($this->meter, $this->new_number, CarbonImmutable::parse($this->replace_date), (int) $this->final_value, (int) $this->initial_value, Auth::user());
+            $new = $service->replace(
+                $this->meter,
+                $this->new_number,
+                CarbonImmutable::parse($this->replace_date),
+                $this->meter->parseValue($this->final_value),
+                $this->meter->parseValue($this->initial_value),
+                Auth::user(),
+                calibrationYear: $this->new_calibration_year !== '' ? (int) $this->new_calibration_year : null,
+            );
         } catch (RuntimeException $e) {
             $this->addError('replace_date', $e->getMessage());
 
@@ -189,8 +202,19 @@ new class extends Component {
         <flux:card class="space-y-2 text-sm">
             <flux:heading>{{ __('Stammdaten') }}</flux:heading>
             <dl class="grid grid-cols-2 gap-y-2">
+                <dt class="text-zinc-500">{{ __('Art') }}</dt><dd><flux:badge size="sm" :color="$meter->medium->color()">{{ $meter->medium->label() }}</flux:badge></dd>
                 <dt class="text-zinc-500">{{ __('Mieter') }}</dt><dd>{{ $meter->tenant?->name ?? '–' }}</dd>
-                <dt class="text-zinc-500">{{ __('Zählerfaktor') }}</dt><dd>{{ $meter->factor }}</dd>
+                @if ($meter->isWater())
+                    <dt class="text-zinc-500">{{ __('Eichjahr') }}</dt>
+                    <dd>
+                        {{ $meter->calibration_year ?? '–' }}
+                        @if ($meter->calibrationValidUntil())
+                            <span @class(['text-red-600 dark:text-red-400' => $meter->calibrationExpired(), 'text-zinc-500' => ! $meter->calibrationExpired()])>({{ __('gültig bis :year', ['year' => $meter->calibrationValidUntil()]) }})</span>
+                        @endif
+                    </dd>
+                @else
+                    <dt class="text-zinc-500">{{ __('Zählerfaktor') }}</dt><dd>{{ $meter->factor }}</dd>
+                @endif
                 <dt class="text-zinc-500">{{ __('Typ') }}</dt><dd>{{ $meter->is_main ? __('Hauptzähler') : __('Unterzähler') }}</dd>
                 <dt class="text-zinc-500">{{ __('Hauptzähler') }}</dt><dd>{{ $meter->parent?->number ?? '–' }}</dd>
                 <dt class="text-zinc-500">{{ __('Eingebaut') }}</dt><dd>{{ $meter->installed_on?->format('d.m.Y') ?? '–' }}</dd>
@@ -241,13 +265,13 @@ new class extends Component {
         </div>
     </flux:card>
 
-    <div class="mt-4 grid gap-4 xl:grid-cols-2">
+    <div @class(['mt-4 grid gap-4', 'xl:grid-cols-2' => ! $meter->isWater()])>
         <flux:card>
             <flux:heading>{{ __('Zählerstände') }}</flux:heading>
             <flux:table class="mt-2">
                 <flux:table.columns>
                     <flux:table.column>{{ __('Datum') }}</flux:table.column>
-                    <flux:table.column align="end">{{ __('Stand (kWh)') }}</flux:table.column>
+                    <flux:table.column align="end">{{ __('Stand') }} ({{ $meter->unit() }})</flux:table.column>
                     <flux:table.column>{{ __('Quelle') }}</flux:table.column>
                     <flux:table.column>{{ __('Status') }}</flux:table.column>
                 </flux:table.columns>
@@ -255,7 +279,7 @@ new class extends Component {
                     @foreach ($this->readings as $reading)
                         <flux:table.row :key="$reading->id">
                             <flux:table.cell>{{ $reading->read_on->format('d.m.Y') }} @if ($reading->is_base) <flux:badge size="sm" color="sky">{{ __('Basis') }}</flux:badge> @endif</flux:table.cell>
-                            <flux:table.cell align="end">{{ number_format($reading->value, 0, ',', '.') }}</flux:table.cell>
+                            <flux:table.cell align="end">{{ $meter->formatValue($reading->value) }}</flux:table.cell>
                             <flux:table.cell>{{ $reading->source->label() }}</flux:table.cell>
                             <flux:table.cell><flux:badge size="sm" :color="$reading->status->color()">{{ $reading->status->label() }}</flux:badge></flux:table.cell>
                         </flux:table.row>
@@ -264,6 +288,7 @@ new class extends Component {
             </flux:table>
         </flux:card>
 
+        @unless ($meter->isWater())
         <flux:card>
             <flux:heading>{{ __('Abrechnungen') }}</flux:heading>
             <flux:table class="mt-2">
@@ -288,6 +313,7 @@ new class extends Component {
                 </flux:table.rows>
             </flux:table>
         </flux:card>
+        @endunless
     </div>
 
     <flux:modal name="tenant-change" class="md:w-lg">
@@ -302,7 +328,7 @@ new class extends Component {
             </flux:select>
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="change_date" :label="__('Stichtag')" type="date" required />
-                <flux:input wire:model="change_value" :label="__('Zählerstand (kWh)')" type="number" min="0" required />
+                <x-meter-value-input wire:model="change_value" :medium="$meter->medium" :label="__('Zählerstand')" />
             </div>
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
@@ -316,10 +342,15 @@ new class extends Component {
             <flux:heading size="lg">{{ __('Zählerwechsel') }}</flux:heading>
             <flux:text>{{ __('Der alte Zähler wird mit dem Endstand deaktiviert, der neue übernimmt Mieter, Ort, Faktor und Hauptzähler.') }}</flux:text>
             <flux:input wire:model="new_number" :label="__('Neue Zählernummer')" required />
-            <flux:input wire:model="replace_date" :label="__('Datum des Wechsels')" type="date" required />
             <div class="grid gap-4 sm:grid-cols-2">
-                <flux:input wire:model="final_value" :label="__('Endstand alter Zähler')" type="number" min="0" required />
-                <flux:input wire:model="initial_value" :label="__('Anfangsstand neuer Zähler')" type="number" min="0" required />
+                <flux:input wire:model="replace_date" :label="__('Datum des Wechsels')" type="date" required />
+                @if ($meter->isWater())
+                    <flux:input wire:model="new_calibration_year" :label="__('Eichjahr neuer Zähler')" type="number" min="1980" :max="now()->year + 1" />
+                @endif
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+                <x-meter-value-input wire:model="final_value" :medium="$meter->medium" :label="__('Endstand alter Zähler')" />
+                <x-meter-value-input wire:model="initial_value" :medium="$meter->medium" :label="__('Anfangsstand neuer Zähler')" />
             </div>
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>

@@ -26,14 +26,14 @@ class PlausibilityChecker
         $next = (clone $readings)->whereDate('read_on', '>', $date)->orderBy('read_on')->first();
 
         if ($previous && $value < $previous->value) {
-            return $this->pending(__('Zählerstand kleiner als die vorherige Ablesung (:value kWh am :date).', [
-                'value' => $previous->value, 'date' => $previous->read_on->format('d.m.Y'),
+            return $this->pending(__('Zählerstand kleiner als die vorherige Ablesung (:value am :date).', [
+                'value' => $meter->formatValue($previous->value, true), 'date' => $previous->read_on->format('d.m.Y'),
             ]));
         }
 
         if ($next && $value > $next->value) {
-            return $this->pending(__('Zählerstand größer als die spätere Ablesung (:value kWh am :date).', [
-                'value' => $next->value, 'date' => $next->read_on->format('d.m.Y'),
+            return $this->pending(__('Zählerstand größer als die spätere Ablesung (:value am :date).', [
+                'value' => $meter->formatValue($next->value, true), 'date' => $next->read_on->format('d.m.Y'),
             ]));
         }
 
@@ -43,9 +43,14 @@ class PlausibilityChecker
             $multiplier = (float) Setting::get('plausibility_multiplier');
 
             if ($average > 0 && $daily > $average * $multiplier) {
-                return $this->pending(__('Ungewöhnlich hoher Verbrauch: :daily kWh/Tag (Durchschnitt :average kWh/Tag).', [
-                    'daily' => number_format($daily, 1, ',', '.'),
-                    'average' => number_format($average, 1, ',', '.'),
+                // Wasser: Liter -> m³ (3 Nachkommastellen), Strom: kWh (1 Nachkommastelle).
+                $scale = $meter->medium->scale();
+                $decimals = $meter->isWater() ? 3 : 1;
+
+                return $this->pending(__('Ungewöhnlich hoher Verbrauch: :daily :unit/Tag (Durchschnitt :average :unit/Tag).', [
+                    'daily' => number_format($daily / $scale, $decimals, ',', '.'),
+                    'average' => number_format($average / $scale, $decimals, ',', '.'),
+                    'unit' => $meter->unit(),
                 ]));
             }
         }

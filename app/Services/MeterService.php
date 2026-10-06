@@ -66,16 +66,25 @@ class MeterService
         });
     }
 
-    public function replace(Meter $old, string $newNumber, CarbonInterface $date, int $finalValue, int $initialValue, ?User $user): Meter
-    {
-        return DB::transaction(function () use ($old, $newNumber, $date, $finalValue, $initialValue, $user) {
+    public function replace(
+        Meter $old,
+        string $newNumber,
+        CarbonInterface $date,
+        int $finalValue,
+        int $initialValue,
+        ?User $user,
+        ?int $calibrationYear = null,
+    ): Meter {
+        return DB::transaction(function () use ($old, $newNumber, $date, $finalValue, $initialValue, $user, $calibrationYear) {
             $old->refresh();
             $this->readings->record($old, $finalValue, $date, ReadingSource::Admin, __('Zählerwechsel - Ausbau'), user: $user, isBase: true);
             $this->closeAssignment($old, $date);
 
             $new = $this->create([
                 'number' => $newNumber,
+                'medium' => $old->medium,
                 'location' => $old->location,
+                'calibration_year' => $calibrationYear,
                 'factor' => $old->factor,
                 'is_main' => $old->is_main,
                 'parent_id' => $old->parent_id,

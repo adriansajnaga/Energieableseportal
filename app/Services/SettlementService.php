@@ -36,6 +36,8 @@ class SettlementService
             ->with(['meter', 'tenant'])
             ->get()
             ->filter(fn (MeterAssignment $a) => $a->meter && $a->tenant)
+            // Wasserzähler werden (noch) nicht abgerechnet, nur abgelesen.
+            ->filter(fn (MeterAssignment $a) => ! $a->meter->isWater())
             // Inaktive Zähler nicht mehr abrechnen – außer sie wurden erst in diesem Monat ausgebaut
             // (Zählerwechsel: Abrechnung bis zum Ausbautag).
             ->filter(fn (MeterAssignment $a) => $a->meter->is_active

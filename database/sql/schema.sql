@@ -77,6 +77,9 @@ alter table `collective_items` add unique `collective_items_collective_id_settle
 alter table `settlements` add `emailed_to` varchar(255) null after `emailed_at`  ;
 alter table `tenants` add `active_until` date null after `active_from`  ;
 alter table `tenants` add `issues_invoices` tinyint(1) not null default '1' after `price_factor`  ;
+alter table `meters` add `medium` varchar(20) not null default 'electricity' after `number`  ;
+alter table `meters` add `calibration_year` smallint unsigned null after `location`  ;
+alter table `meters` add index `meters_medium_index`(`medium`)  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -87,4 +90,5 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_30_000001_add_collective_invoices', 1),
 ('2026_10_01_000001_add_emailed_to_to_settlements', 1),
 ('2026_10_01_000002_add_active_until_to_tenants', 1),
-('2026_10_02_000001_add_invoicing_mode_to_tenants', 1);
+('2026_10_02_000001_add_invoicing_mode_to_tenants', 1),
+('2026_10_06_000001_add_medium_to_meters_table', 1);

@@ -29,7 +29,7 @@ class Statistics
         // Verbrauch laut Versorgerrechnungen der aktiven Hauptzähler.
         $supplier = ElectricityPrice::query()
             ->whereBetween('month', [$from->toDateString(), $to->toDateString()])
-            ->whereIn('meter_id', Meter::query()->main()->active()->select('id'))
+            ->whereIn('meter_id', Meter::query()->main()->electricity()->active()->select('id'))
             ->get(['month', 'consumption_kwh']);
 
         return $this->months($from, $to)->mapWithKeys(function (CarbonImmutable $month) use ($settlements, $supplier) {
@@ -60,7 +60,7 @@ class Statistics
             ->get(['main_meter_id', 'period', 'billed_kwh'])
             ->groupBy('main_meter_id');
 
-        return Meter::query()->main()->when($onlyActive, fn ($q) => $q->active())->orderBy('number')->get()->map(function (Meter $meter) use ($from, $to, $prices, $settlements) {
+        return Meter::query()->main()->electricity()->when($onlyActive, fn ($q) => $q->active())->orderBy('number')->get()->map(function (Meter $meter) use ($from, $to, $prices, $settlements) {
             $months = $this->months($from, $to)->mapWithKeys(function (CarbonImmutable $month) use ($meter, $prices, $settlements) {
                 $supplier = (float) ($prices->get($meter->id)?->first(fn ($p) => $p->month->isSameMonth($month))?->consumption_kwh ?? 0);
                 $sub = (int) $settlements->get($meter->id, collect())->filter(fn ($s) => $s->period->isSameMonth($month))->sum('billed_kwh');
@@ -86,7 +86,7 @@ class Statistics
      *
      * @return Collection<int, Meter>
      */
-    public function metersWithoutReading(CarbonInterface $month): Collection
+    public function metersWithoutReading(CarbonInterface $month, ?string $type = null): Collection
     {
         $start = CarbonImmutable::parse($month)->startOfMonth();
 
@@ -97,6 +97,7 @@ class Statistics
             ->unique();
 
         return Meter::query()->active()
+            ->ofType($type)
             ->whereNotIn('id', $read)
             ->with('tenant')
             ->orderBy('number')

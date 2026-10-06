@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Medium;
 use App\Models\Meter;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -19,6 +20,15 @@ class MeterFactory extends Factory
             'is_main' => false,
             'is_active' => true,
         ];
+    }
+
+    public function water(Medium $medium = Medium::ColdWater): static
+    {
+        return $this->state(fn () => [
+            'medium' => $medium,
+            'number' => (string) fake()->unique()->numerify('WZ########'),
+            'calibration_year' => 2024,
+        ]);
     }
 
     public function main(): static

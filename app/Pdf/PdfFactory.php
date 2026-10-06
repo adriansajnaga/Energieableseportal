@@ -141,7 +141,7 @@ class PdfFactory
 
     public function mainMeters(CarbonImmutable $month): Document
     {
-        $meters = Meter::query()->main()->active()->orderBy('number')->get()->map(fn (Meter $meter) => [
+        $meters = Meter::query()->main()->electricity()->active()->orderBy('number')->get()->map(fn (Meter $meter) => [
             'meter' => $meter,
             'price' => ElectricityPrice::query()->where('meter_id', $meter->id)->whereDate('month', $month->toDateString())->first(),
             'settlements' => Settlement::query()->effective()
