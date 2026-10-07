@@ -23,6 +23,11 @@
                     <flux:navlist.item icon="pencil-square" :href="route('readings.index')" :current="request()->routeIs('readings.index')" wire:navigate>{{ __('Zählerstände') }}</flux:navlist.item>
                 </flux:navlist.group>
 
+                <flux:navlist.group :heading="__('Analysator')" class="grid">
+                    <flux:navlist.item icon="share" :href="route('analyzer.schema')" :current="request()->routeIs('analyzer.schema')" wire:navigate>{{ __('Leitungsschema') }}</flux:navlist.item>
+                    <flux:navlist.item icon="cpu-chip" :href="route('analyzer.devices')" :current="request()->routeIs('analyzer.devices')" wire:navigate>{{ __('Analysator-Geräte') }}</flux:navlist.item>
+                </flux:navlist.group>
+
                 @can('view-finance')
                     <flux:navlist.group :heading="__('Abrechnung')" class="grid">
                         <flux:navlist.item icon="calculator" :href="route('settlements.index')" :current="request()->routeIs('settlements.*')" wire:navigate>{{ __('Abrechnung') }}</flux:navlist.item>

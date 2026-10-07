@@ -51,6 +51,19 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
 - Wodomierze mają te same funkcje odczytu co prąd: kod QR i etykiety (niebieskie dla wody zimnej, czerwone dla ciepłej), status odczytów z filtrem rodzaju, przypomnienia e-mail, kontrolę wiarygodności.
 - Wodomierze nie trafiają do rozliczeń prądu, cen prądu ani raportów liczników głównych. Rozliczanie wody jest do zrobienia osobno.
 
+## Analizator i schemat połączeń (szukanie strat)
+
+- **Leitungsschema** (menu „Analysator”): punkty pomiarowe (`meters.is_analyzer`) na odgałęzieniach licznika głównego i przypisanie liczników końcowych do odgałęzienia (`meters.feed_id`, puste = bezpośrednio z licznika głównego). Punkty pomiarowe są odczytywane, ale nigdy nie rozliczane.
+- **Verbrauchsverteilung** (przycisk w „Abrechnung”): drzewo zużycia miesiąca od 1. do 1. z różnicą każdego węzła względem sumy liczników pod nim (czerwony od 15 %, żółty od 5 %). Zużycie: kWh z rozliczenia albo z odczytów (odczyt 1. dnia, interpolacja między odczytami lub ekstrapolacja), z mnożnikiem licznika.
+- **Analysator-Geräte**: urządzenia ESP32 z tokenem (SHA-256 w bazie), sloty 1–6, przypisanie slotu do punktu pomiarowego. Najwcześniejszy stan każdego dnia (odczyt planowy o 00:00 czasu Europe/Warsaw) trafia jako odczyt punktu pomiarowego.
+
+### API analizatora
+
+- Urządzenie: `POST https://ascomm.pl/em/api/analyzer/readings`, nagłówek `Authorization: Bearer <token>`. Odpowiedź `{"ok":true,"saved":N,"duplicates":M,"skipped":K}`. 401 przy złym tokenie, 422 tylko gdy body nie jest JSON-em lub brakuje `readings`; błędne pojedyncze pozycje są pomijane i logowane (`storage/logs`). Limit 120 żądań/min na urządzenie (`ENERGIE_ANALYZER_RATE_LIMIT`). Moc `p_kw` nie jest zapisywana.
+- Nowe urządzenie: w portalu „Analysator-Geräte → Analysator hinzufügen” (token pokazywany raz) albo `php artisan analyzer:create {name}`.
+- Odczyt (po zalogowaniu, sesja): `GET /api/analyzer/devices`, `GET /api/analyzer/devices/{id}/readings?slot=&from=&to=&reason=`, `GET /api/analyzer/devices/{id}/consumption?slot=&from=&to=&group=day|month` (przerwy przy spadku kWh lub zmianie adresu/modelu w polu `gaps`), `GET /api/analyzer/devices/{id}/export.csv?from=&to=` (średnik, przecinek dziesiętny, UTF-8 z BOM).
+- Czasy w bazie w UTC (`DATETIME`), wyświetlanie w `ENERGIE_ANALYZER_TIMEZONE` (domyślnie Europe/Warsaw).
+
 ## Role
 
 | Rola | Uprawnienia |

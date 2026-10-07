@@ -5,7 +5,10 @@ namespace App\Providers;
 use App\Enums\Role;
 use App\Models\User;
 use App\Support\MailSettings;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -31,6 +34,10 @@ class AppServiceProvider extends ServiceProvider
 
         // SMTP-Zugang aus den Einstellungen der Verwaltung.
         MailSettings::apply();
+
+        // Analysator-API: Grenze je Gerät (Token), bei Rückstand kommen mehrere Pakete pro Sekunde.
+        RateLimiter::for('analyzer', fn (Request $request) => Limit::perMinute(config('energie.analyzer_rate_limit'))
+            ->by('analyzer:'.hash('sha256', (string) ($request->bearerToken() ?? $request->ip()))));
 
         // Ablesungen erfassen: Verwaltung und Hausmeister.
         Gate::define('record-readings', fn (User $user) => in_array($user->role, [Role::Admin, Role::Caretaker], true));

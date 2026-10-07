@@ -215,13 +215,19 @@ new class extends Component {
                 @else
                     <dt class="text-zinc-500">{{ __('Zählerfaktor') }}</dt><dd>{{ $meter->factor }}</dd>
                 @endif
-                <dt class="text-zinc-500">{{ __('Typ') }}</dt><dd>{{ $meter->is_main ? __('Hauptzähler') : __('Unterzähler') }}</dd>
+                <dt class="text-zinc-500">{{ __('Typ') }}</dt><dd>{{ $meter->typeLabel() }}</dd>
                 <dt class="text-zinc-500">{{ __('Hauptzähler') }}</dt><dd>{{ $meter->parent?->number ?? '–' }}</dd>
+                @if ($meter->feed)
+                    <dt class="text-zinc-500">{{ __('Versorgt über') }}</dt><dd><flux:link :href="route('meters.show', $meter->feed)" wire:navigate>{{ $meter->feed->number }}</flux:link></dd>
+                @endif
                 <dt class="text-zinc-500">{{ __('Eingebaut') }}</dt><dd>{{ $meter->installed_on?->format('d.m.Y') ?? '–' }}</dd>
                 <dt class="text-zinc-500">{{ __('Aktiv') }}</dt><dd>{{ $meter->is_active ? __('Ja') : __('Nein') }}</dd>
             </dl>
             @if ($meter->is_main)
                 <flux:text class="pt-2">{{ __('Unterzähler') }}: {{ $meter->children()->pluck('number')->join(', ') ?: '–' }}</flux:text>
+            @endif
+            @if ($meter->fedMeters()->exists())
+                <flux:text class="pt-2">{{ __('Zähler dahinter') }}: {{ $meter->fedMeters()->orderBy('number')->pluck('number')->join(', ') }}</flux:text>
             @endif
         </flux:card>
 
@@ -265,7 +271,7 @@ new class extends Component {
         </div>
     </flux:card>
 
-    <div @class(['mt-4 grid gap-4', 'xl:grid-cols-2' => ! $meter->isWater()])>
+    <div @class(['mt-4 grid gap-4', 'xl:grid-cols-2' => ! $meter->isWater() && ! $meter->is_analyzer])>
         <flux:card>
             <flux:heading>{{ __('Zählerstände') }}</flux:heading>
             <flux:table class="mt-2">
@@ -288,7 +294,7 @@ new class extends Component {
             </flux:table>
         </flux:card>
 
-        @unless ($meter->isWater())
+        @unless ($meter->isWater() || $meter->is_analyzer)
         <flux:card>
             <flux:heading>{{ __('Abrechnungen') }}</flux:heading>
             <flux:table class="mt-2">

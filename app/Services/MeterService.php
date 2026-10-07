@@ -87,7 +87,9 @@ class MeterService
                 'calibration_year' => $calibrationYear,
                 'factor' => $old->factor,
                 'is_main' => $old->is_main,
+                'is_analyzer' => $old->is_analyzer,
                 'parent_id' => $old->parent_id,
+                'feed_id' => $old->feed_id,
                 'tenant_id' => $old->tenant_id,
                 'installed_on' => $date->toDateString(),
             ], $initialValue, $date, $user);
@@ -95,6 +97,9 @@ class MeterService
             if ($old->is_main) {
                 $old->children()->update(['parent_id' => $new->id]);
             }
+
+            // Leitungsschema: nachgeschaltete Zähler hängen ab jetzt am neuen Zähler.
+            $old->fedMeters()->update(['feed_id' => $new->id]);
 
             $old->update([
                 'is_active' => false,
@@ -104,6 +109,55 @@ class MeterService
 
             return $new;
         });
+    }
+
+    /**
+     * Leitungsschema: vorgeschalteten Zähler setzen. Erlaubt sind der eigene Hauptzähler (= direkt, feed_id leer)
+     * und andere Zähler desselben Hauptzählers, aber nicht der Zähler selbst oder ein nachgeschalteter (Kreis).
+     */
+    public function setFeed(Meter $meter, ?Meter $feed): void
+    {
+        if ($meter->is_main) {
+            throw new RuntimeException(__('Ein Hauptzähler hat keinen vorgeschalteten Zähler.'));
+        }
+
+        if (! $feed || $feed->id === $meter->parent_id) {
+            $meter->update(['feed_id' => null]);
+
+            return;
+        }
+
+        if ($feed->id === $meter->id || $this->isDownstream($feed, $meter)) {
+            throw new RuntimeException(__('Ein Zähler kann nicht hinter sich selbst oder einem nachgeschalteten Zähler hängen.'));
+        }
+
+        if ($feed->is_main || $this->mainMeterId($feed) !== $meter->parent_id || $feed->isWater() !== $meter->isWater()) {
+            throw new RuntimeException(__('Der vorgeschaltete Zähler muss am selben Hauptzähler hängen.'));
+        }
+
+        $meter->update(['feed_id' => $feed->id]);
+    }
+
+    /** Liegt $candidate (über feed_id) hinter $meter? */
+    public function isDownstream(Meter $candidate, Meter $meter): bool
+    {
+        $seen = [];
+        $current = $candidate;
+
+        while ($current && $current->feed_id && ! isset($seen[$current->id])) {
+            if ($current->feed_id === $meter->id) {
+                return true;
+            }
+            $seen[$current->id] = true;
+            $current = Meter::find($current->feed_id);
+        }
+
+        return false;
+    }
+
+    private function mainMeterId(Meter $meter): ?int
+    {
+        return $meter->is_main ? $meter->id : $meter->parent_id;
     }
 
     private function closeAssignment(Meter $meter, CarbonInterface $date): void

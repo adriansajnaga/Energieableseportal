@@ -37,6 +37,7 @@ new #[Title('Zähler')] class extends Component {
     public string $calibration_year = '';
     public string $factor = '1';
     public bool $is_main = false;
+    public bool $is_analyzer = false;
     public string $parent_id = '';
     public string $tenant_id = '';
     public bool $is_active = true;
@@ -76,6 +77,7 @@ new #[Title('Zähler')] class extends Component {
             ->when($this->status === 'active', fn ($q) => $q->where('is_active', true))
             ->when($this->status === 'inactive', fn ($q) => $q->where('is_active', false))
             ->when($this->status === 'main', fn ($q) => $q->where('is_main', true))
+            ->when($this->status === 'analyzer', fn ($q) => $q->where('is_analyzer', true))
             ->ofType($this->type)
             ->orderByDesc('is_main')
             ->orderBy('number')
@@ -128,6 +130,7 @@ new #[Title('Zähler')] class extends Component {
             'calibration_year' => (string) $meter->calibration_year,
             'factor' => (string) $meter->factor,
             'is_main' => $meter->is_main,
+            'is_analyzer' => $meter->is_analyzer,
             'parent_id' => (string) $meter->parent_id,
             'tenant_id' => (string) $meter->tenant_id,
             'is_active' => $meter->is_active,
@@ -146,6 +149,7 @@ new #[Title('Zähler')] class extends Component {
             'calibration_year' => ['nullable', 'integer', 'min:1980', 'max:'.(now()->year + 1)],
             'factor' => ['required', 'integer', 'min:1', 'max:10000'],
             'is_main' => ['boolean'],
+            'is_analyzer' => ['boolean'],
             'parent_id' => ['nullable', Rule::notIn([$this->editingId]), Rule::exists('meters', 'id')->where('is_main', true)
                 ->whereIn('medium', $this->mediumEnum()->isWater() ? array_map(fn (Medium $m) => $m->value, Medium::water()) : [Medium::Electricity->value])],
             'tenant_id' => ['nullable', 'exists:tenants,id'],
@@ -154,7 +158,7 @@ new #[Title('Zähler')] class extends Component {
             'starts_on' => [$this->editingId ? 'nullable' : 'required', 'nullable', 'date'],
         ]);
 
-        $attributes = collect($data)->only(['number', 'medium', 'location', 'calibration_year', 'factor', 'is_main', 'parent_id', 'is_active'])
+        $attributes = collect($data)->only(['number', 'medium', 'location', 'calibration_year', 'factor', 'is_main', 'is_analyzer', 'parent_id', 'is_active'])
             ->map(fn ($v) => $v === '' ? null : $v)
             ->all();
 
@@ -167,12 +171,17 @@ new #[Title('Zähler')] class extends Component {
             $attributes['parent_id'] = null;
         }
 
+        // Analysator-Messpunkte gibt es nur für Strom und nie als Hauptzähler.
+        if ($this->is_main || $this->mediumEnum()->isWater()) {
+            $attributes['is_analyzer'] = false;
+        }
+
         if ($this->editingId) {
             // Mieter werden nur über "Mieterwechsel" geändert, damit die Historie stimmt.
             Meter::findOrFail($this->editingId)->update($attributes);
         } else {
             $service->create(
-                [...$attributes, 'tenant_id' => $this->tenant_id ?: null, 'installed_on' => $this->starts_on],
+                [...$attributes, 'tenant_id' => $attributes['is_analyzer'] ? null : ($this->tenant_id ?: null), 'installed_on' => $this->starts_on],
                 $this->mediumEnum()->parse($this->initial_value),
                 CarbonImmutable::parse($this->starts_on),
                 Auth::user(),
@@ -185,7 +194,7 @@ new #[Title('Zähler')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['editingId', 'number', 'medium', 'location', 'calibration_year', 'is_main', 'parent_id', 'tenant_id', 'initial_value', 'starts_on']);
+        $this->reset(['editingId', 'number', 'medium', 'location', 'calibration_year', 'is_main', 'is_analyzer', 'parent_id', 'tenant_id', 'initial_value', 'starts_on']);
         $this->factor = '1';
         $this->is_active = true;
         $this->resetValidation();
@@ -204,6 +213,7 @@ new #[Title('Zähler')] class extends Component {
         <flux:select wire:model.live="status" class="max-w-48">
             <flux:select.option value="active">{{ __('Aktive') }}</flux:select.option>
             <flux:select.option value="main">{{ __('Hauptzähler') }}</flux:select.option>
+            <flux:select.option value="analyzer">{{ __('Analysator-Messpunkte') }}</flux:select.option>
             <flux:select.option value="inactive">{{ __('Inaktive') }}</flux:select.option>
             <flux:select.option value="all">{{ __('Alle') }}</flux:select.option>
         </flux:select>
@@ -233,6 +243,7 @@ new #[Title('Zähler')] class extends Component {
                     <flux:table.cell variant="strong">
                         <flux:link :href="route('meters.show', $meter)" wire:navigate>{{ $meter->number }}</flux:link>
                         @if ($meter->is_main) <flux:badge size="sm" color="amber" class="ms-1">{{ __('Hauptzähler') }}</flux:badge> @endif
+                        @if ($meter->is_analyzer) <flux:badge size="sm" color="violet" class="ms-1">{{ __('Analysator') }}</flux:badge> @endif
                     </flux:table.cell>
                     <flux:table.cell>
                         <flux:badge size="sm" :color="$meter->medium->color()">{{ $meter->medium->label() }}</flux:badge>
@@ -290,6 +301,10 @@ new #[Title('Zähler')] class extends Component {
                 <flux:switch wire:model.live="is_main" :label="__('Hauptzähler')" :description="__('Für Hauptzähler werden die Strompreise aus der Versorgerrechnung erfasst.')" />
             @endif
 
+            @if (! $is_main && ! $this->mediumEnum()->isWater())
+                <flux:switch wire:model.live="is_analyzer" :label="__('Analysator-Messpunkt')" :description="__('Zusätzlicher Zähler auf einem Abzweig zur Verlustsuche – wird abgelesen, aber nicht abgerechnet.')" />
+            @endif
+
             @unless ($is_main)
                 <flux:select wire:model="parent_id" :label="__('Zugehöriger Hauptzähler')">
                     <flux:select.option value="">–</flux:select.option>
@@ -303,12 +318,14 @@ new #[Title('Zähler')] class extends Component {
                 <flux:callout icon="information-circle" variant="secondary" :text="__('Mieter und Zählerstand werden auf der Detailseite über „Mieterwechsel“ bzw. „Zählerwechsel“ geändert.')" />
                 <flux:switch wire:model="is_active" :label="__('Aktiv')" />
             @else
-                <flux:select wire:model="tenant_id" :label="__('Mieter')">
-                    <flux:select.option value="">–</flux:select.option>
-                    @foreach ($this->tenants as $tenant)
-                        <flux:select.option :value="$tenant->id">{{ $tenant->name }}</flux:select.option>
-                    @endforeach
-                </flux:select>
+                @unless ($is_analyzer)
+                    <flux:select wire:model="tenant_id" :label="__('Mieter')">
+                        <flux:select.option value="">–</flux:select.option>
+                        @foreach ($this->tenants as $tenant)
+                            <flux:select.option :value="$tenant->id">{{ $tenant->name }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                @endunless
                 <div class="grid gap-4 sm:grid-cols-2">
                     @if ($this->mediumEnum()->isWater())
                         <flux:input wire:model="initial_value" :label="__('Anfangsstand (m³)')" inputmode="decimal" placeholder="123,456" required />

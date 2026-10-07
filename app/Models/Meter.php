@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\Medium;
 use App\Models\Concerns\LogsActivity;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +18,7 @@ class Meter extends Model
     use HasFactory, LogsActivity;
 
     protected $fillable = [
-        'number', 'medium', 'location', 'calibration_year', 'factor', 'is_main', 'parent_id', 'tenant_id', 'is_active',
+        'number', 'medium', 'location', 'calibration_year', 'factor', 'is_main', 'is_analyzer', 'parent_id', 'feed_id', 'tenant_id', 'is_active',
         'qr_token', 'legacy_hash', 'replaced_by_id', 'installed_on', 'removed_on', 'legacy_id',
     ];
 
@@ -33,6 +35,7 @@ class Meter extends Model
             'calibration_year' => 'integer',
             'factor' => 'integer',
             'is_main' => 'boolean',
+            'is_analyzer' => 'boolean',
             'is_active' => 'boolean',
             'installed_on' => 'date',
             'removed_on' => 'date',
@@ -64,6 +67,18 @@ class Meter extends Model
     public function children(): HasMany
     {
         return $this->hasMany(Meter::class, 'parent_id');
+    }
+
+    /** Vorgeschalteter Zähler im Leitungsschema (Abzweig mit Analysator-Messpunkt). */
+    public function feed(): BelongsTo
+    {
+        return $this->belongsTo(Meter::class, 'feed_id');
+    }
+
+    /** Zähler, die über diesen Zähler versorgt werden (Leitungsschema). */
+    public function fedMeters(): HasMany
+    {
+        return $this->hasMany(Meter::class, 'feed_id');
     }
 
     public function replacedBy(): BelongsTo
@@ -99,6 +114,21 @@ class Meter extends Model
     public function scopeMain(Builder $query): void
     {
         $query->where('is_main', true);
+    }
+
+    /** Messpunkte des Analysators (werden nicht abgerechnet). */
+    public function scopeAnalyzer(Builder $query): void
+    {
+        $query->where('is_analyzer', true);
+    }
+
+    /** Zähler, die im Monat eingebaut waren (aktiv oder erst in/nach diesem Monat ausgebaut). */
+    public function scopeExistingIn(Builder $query, CarbonInterface $month): void
+    {
+        $start = CarbonImmutable::parse($month)->startOfMonth();
+
+        $query->where(fn (Builder $q) => $q->whereNull('installed_on')->orWhereDate('installed_on', '<', $start->addMonthNoOverflow()->toDateString()))
+            ->where(fn (Builder $q) => $q->where('is_active', true)->orWhereDate('removed_on', '>=', $start->toDateString()));
     }
 
     /** Nur Stromzähler (Abrechnung, Strompreise, Berichte). */
@@ -157,6 +187,22 @@ class Meter extends Model
         $until = $this->calibrationValidUntil();
 
         return $until !== null && $until < ($year ?? (int) now()->year);
+    }
+
+    /** Vorgeschalteter Knoten im Leitungsschema: Abzweig oder sonst der Hauptzähler. */
+    public function upstreamId(): ?int
+    {
+        return $this->is_main ? null : ($this->feed_id ?? $this->parent_id);
+    }
+
+    /** Typ für Anzeige: Hauptzähler, Analysator-Messpunkt oder Unterzähler. */
+    public function typeLabel(): string
+    {
+        return match (true) {
+            $this->is_main => __('Hauptzähler'),
+            $this->is_analyzer => __('Analysator-Messpunkt'),
+            default => __('Unterzähler'),
+        };
     }
 
     /** Der Hauptzähler, dessen Strompreis für diesen Zähler gilt. */

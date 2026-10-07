@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AnalyzerController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\LabelController;
 use App\Http\Controllers\LegacyQrController;
@@ -37,6 +38,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('readings/{reading}/photo', ReadingPhotoController::class)->name('readings.photo');
 
     Volt::route('settlements', 'settlements.index')->middleware('can:view-finance')->name('settlements.index');
+    Volt::route('settlements/verteilung', 'settlements.distribution')->middleware('can:view-finance')->name('settlements.distribution');
     Volt::route('settlements/{meter}/{tenant}', 'settlements.create')->middleware('can:manage')->name('settlements.create');
     Volt::route('prices', 'prices.index')->middleware('can:view-finance')->name('prices.index');
     Volt::route('reports', 'reports.index')->name('reports.index');
@@ -52,6 +54,18 @@ Route::middleware(['auth'])->group(function () {
         Route::get('main-meters/{month}', 'mainMeters')->name('main-meters');
         Route::get('consumption/{year}', 'consumption')->name('consumption');
         Route::get('difference/{year}', 'difference')->name('difference');
+    });
+
+    // Analysator: Leitungsschema mit Messpunkten und mobile Analysatoren.
+    Volt::route('analyzer', 'analyzer.schema')->name('analyzer.schema');
+    Volt::route('analyzer/devices', 'analyzer.devices')->name('analyzer.devices');
+
+    // Lesende Analysator-API (Sitzung). Das Gerät selbst sendet an routes/api.php.
+    Route::prefix('api/analyzer')->name('analyzer.api.')->controller(AnalyzerController::class)->group(function () {
+        Route::get('devices', 'devices')->name('devices');
+        Route::get('devices/{device}/readings', 'readings')->name('readings');
+        Route::get('devices/{device}/consumption', 'consumption')->name('consumption');
+        Route::get('devices/{device}/export.csv', 'export')->name('export');
     });
 
     Route::get('labels/zip/{format}', [LabelController::class, 'zip'])->whereIn('format', ['png', 'jpg'])->name('labels.zip');

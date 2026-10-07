@@ -301,6 +301,7 @@ new #[Title('Abrechnung')] class extends Component {
             <flux:button icon="document-arrow-down" :href="route('pdf.invoices', $month)" target="_blank">{{ __('Alle Rechnungen (PDF)') }}</flux:button>
             <flux:button icon="table-cells" :href="route('pdf.overview', $month)" target="_blank">{{ __('Alle Abrechnungen (PDF)') }}</flux:button>
         @endcan
+        <flux:button icon="share" :href="route('settlements.distribution', ['monat' => $month])" wire:navigate>{{ __('Verbrauchsverteilung') }}</flux:button>
     </div>
 
     <flux:table>

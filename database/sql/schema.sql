@@ -80,6 +80,20 @@ alter table `tenants` add `issues_invoices` tinyint(1) not null default '1' afte
 alter table `meters` add `medium` varchar(20) not null default 'electricity' after `number`  ;
 alter table `meters` add `calibration_year` smallint unsigned null after `location`  ;
 alter table `meters` add index `meters_medium_index`(`medium`)  ;
+alter table `meters` add `is_analyzer` tinyint(1) not null default '0' after `is_main`  ;
+alter table `meters` add `feed_id` bigint unsigned null after `parent_id`  ;
+alter table `meters` add constraint `meters_feed_id_foreign` foreign key (`feed_id`) references `meters` (`id`) on delete set null  ;
+create table `analyzer_devices` (`id` bigint unsigned not null auto_increment primary key, `name` varchar(64) not null, `token_hash` char(64) not null, `fw` varchar(20) null, `last_boot` int unsigned null, `last_seen_at` datetime null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
+alter table `analyzer_devices` add unique `analyzer_devices_name_unique`(`name`)  ;
+alter table `analyzer_devices` add unique `analyzer_devices_token_hash_unique`(`token_hash`)  ;
+create table `analyzer_slots` (`id` bigint unsigned not null auto_increment primary key, `device_id` bigint unsigned not null, `slot` tinyint unsigned not null, `name` varchar(255) null, `addr` tinyint unsigned null, `model` varchar(20) null, `meter_id` bigint unsigned null, `meter_since` datetime null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
+alter table `analyzer_slots` add constraint `analyzer_slots_device_id_foreign` foreign key (`device_id`) references `analyzer_devices` (`id`) on delete cascade  ;
+alter table `analyzer_slots` add constraint `analyzer_slots_meter_id_foreign` foreign key (`meter_id`) references `meters` (`id`) on delete set null  ;
+alter table `analyzer_slots` add unique `analyzer_slots_device_id_slot_unique`(`device_id`, `slot`)  ;
+create table `analyzer_readings` (`id` bigint unsigned not null auto_increment primary key, `device_id` bigint unsigned not null, `slot` tinyint unsigned not null, `addr` tinyint unsigned not null, `model` varchar(20) null, `meter_name` varchar(255) null, `boot` int unsigned not null, `up` int unsigned not null, `ts` datetime null, `ts_reconstructed` tinyint(1) not null default '0', `needs_review` tinyint(1) not null default '0', `reason` varchar(10) not null, `kwh` decimal(14, 2) not null, `received_at` datetime not null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
+alter table `analyzer_readings` add constraint `analyzer_readings_device_id_foreign` foreign key (`device_id`) references `analyzer_devices` (`id`) on delete cascade  ;
+alter table `analyzer_readings` add unique `analyzer_readings_device_id_boot_up_slot_unique`(`device_id`, `boot`, `up`, `slot`)  ;
+alter table `analyzer_readings` add index `analyzer_readings_device_id_slot_ts_index`(`device_id`, `slot`, `ts`)  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -91,4 +105,6 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_10_01_000001_add_emailed_to_to_settlements', 1),
 ('2026_10_01_000002_add_active_until_to_tenants', 1),
 ('2026_10_02_000001_add_invoicing_mode_to_tenants', 1),
-('2026_10_06_000001_add_medium_to_meters_table', 1);
+('2026_10_06_000001_add_medium_to_meters_table', 1),
+('2026_10_07_000001_add_analyzer_fields_to_meters_table', 1),
+('2026_10_07_000002_create_analyzer_tables', 1);

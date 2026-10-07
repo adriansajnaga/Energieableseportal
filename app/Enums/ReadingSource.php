@@ -8,6 +8,7 @@ enum ReadingSource: string
     case Caretaker = 'caretaker';
     case Admin = 'admin';
     case System = 'system';
+    case Analyzer = 'analyzer';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum ReadingSource: string
             self::Caretaker => __('Hausmeister'),
             self::Admin => __('Verwaltung'),
             self::System => __('System (berechnet)'),
+            self::Analyzer => __('Analysator'),
         };
     }
 }
