@@ -54,6 +54,14 @@ new #[Title('Leitungsschema')] class extends Component {
         ])->values();
     }
 
+    /** Aktive Stromzähler ohne Hauptzähler – erscheinen sonst nicht im Schema. */
+    #[Computed]
+    public function unassigned(): Collection
+    {
+        return Meter::query()->electricity()->active()->where('is_main', false)->whereNull('parent_id')
+            ->with('tenant')->orderByDesc('is_analyzer')->orderBy('number')->get();
+    }
+
     #[Computed]
     public function analyzerMeters(): Collection
     {
@@ -108,7 +116,7 @@ new #[Title('Leitungsschema')] class extends Component {
         }
 
         $this->loadFeeds();
-        unset($this->roots, $this->groups, $this->analyzerMeters);
+        unset($this->roots, $this->groups, $this->unassigned, $this->analyzerMeters);
     }
 
     public function createMeasuringPoint(): void
@@ -163,7 +171,7 @@ new #[Title('Leitungsschema')] class extends Component {
 
     private function loadFeeds(): void
     {
-        $this->feeds = Meter::query()->electricity()->active()->where('is_main', false)->whereNotNull('parent_id')
+        $this->feeds = Meter::query()->electricity()->active()->where('is_main', false)
             ->get(['id', 'feed_id', 'parent_id'])
             ->mapWithKeys(fn (Meter $m) => [$m->id => (string) ($m->feed_id ?? $m->parent_id)])
             ->all();
@@ -190,6 +198,36 @@ new #[Title('Leitungsschema')] class extends Component {
     <flux:text class="mb-3">{{ __('Für jeden Zähler: über welchen Abzweig (Messpunkt) oder direkt über welchen Hauptzähler er versorgt wird.') }}</flux:text>
 
     <div class="space-y-4">
+        @if ($this->unassigned->isNotEmpty())
+            <flux:card class="border-amber-300! dark:border-amber-700!">
+                <flux:heading>{{ __('Zähler ohne Hauptzähler') }}</flux:heading>
+                <flux:text class="mt-1">{{ __('Diese Zähler hängen an keinem Hauptzähler und erscheinen deshalb nicht im Schema. Wählen Sie den Hauptzähler aus.') }}</flux:text>
+                <flux:table class="mt-2">
+                    <flux:table.rows>
+                        @foreach ($this->unassigned as $meter)
+                            <flux:table.row :key="'unassigned-'.$meter->id">
+                                <flux:table.cell variant="strong">
+                                    <flux:link :href="route('meters.show', $meter)" wire:navigate>{{ $meter->number }}</flux:link>
+                                    @if ($meter->is_analyzer) <flux:badge size="sm" color="violet" class="ms-1">{{ __('Analysator') }}</flux:badge> @endif
+                                </flux:table.cell>
+                                <flux:table.cell>{{ collect([$meter->tenant?->name, $meter->location])->filter()->join(' · ') ?: '–' }}</flux:table.cell>
+                                <flux:table.cell class="min-w-64">
+                                    @can('manage')
+                                        <flux:select size="sm" wire:model.live="feeds.{{ $meter->id }}">
+                                            <flux:select.option value="">{{ __('– Hauptzähler wählen –') }}</flux:select.option>
+                                            @foreach ($this->groups as $group)
+                                                <flux:select.option :value="$group['main']->id">{{ __('Hauptzähler :number', ['number' => $group['main']->number]) }}</flux:select.option>
+                                            @endforeach
+                                        </flux:select>
+                                    @endcan
+                                </flux:table.cell>
+                            </flux:table.row>
+                        @endforeach
+                    </flux:table.rows>
+                </flux:table>
+            </flux:card>
+        @endif
+
         @forelse ($this->groups as $group)
             @php($candidates = $group['meters'])
             <flux:card wire:key="group-{{ $group['main']->id }}">

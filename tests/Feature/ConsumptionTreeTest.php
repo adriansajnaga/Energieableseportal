@@ -148,3 +148,73 @@ it('creates an analyzer device in the interface and shows the token once', funct
 
     expect(\App\Models\AnalyzerDevice::where('name', 'analizator-9')->exists())->toBeTrue();
 });
+
+it('shows a measuring point installed later in earlier months and sums the meters behind it', function () {
+    $later = app(MeterService::class)->create(
+        ['number' => 'AN-9', 'location' => 'Abzweig Halle 4-6', 'is_analyzer' => true, 'parent_id' => $this->main->id, 'installed_on' => now()->toDateString()],
+        100, now()->toImmutable(), $this->admin,
+    );
+    foreach ($this->tenantMeters->slice(3) as $meter) {
+        app(MeterService::class)->setFeed($meter, $later);
+    }
+
+    $root = app(ConsumptionTree::class)->build($this->month)->first();
+    $node = $root['children']->firstWhere('key', 'm'.$later->id);
+    $behind = $this->tenantMeters->slice(3)->sum(fn (Meter $m) => settledKwh($m, $this->month));
+
+    expect($root['children']->pluck('key')->take(2)->all())->toContain('m'.$later->id)
+        ->and($node['not_installed'])->toBeTrue()
+        ->and($node['kwh'])->toBeNull()
+        ->and($node['children'])->toHaveCount(3)
+        ->and($node['difference'])->toBeNull()
+        ->and($node['effective_kwh'])->toBe($behind);
+
+    $this->actingAs($this->admin)->get(route('settlements.distribution', ['monat' => $this->month->format('Y-m')]))
+        ->assertOk()->assertSee('AN-9')->assertSee('eingebaut erst');
+});
+
+it('takes the main meter consumption only from the supplier invoice', function () {
+    app(ReadingService::class)->record($this->main, 1000, $this->month, ReadingSource::Admin);
+    app(ReadingService::class)->record($this->main, 99000, $this->month->addMonthNoOverflow(), ReadingSource::Admin);
+
+    $invoice = (int) round((float) \App\Models\ElectricityPrice::where('meter_id', $this->main->id)->whereDate('month', $this->month->toDateString())->value('consumption_kwh'));
+    $root = app(ConsumptionTree::class)->build($this->month)->first();
+    expect($root['kwh'])->toBe($invoice)->and($root['source'])->toBe(ConsumptionTree::INVOICE);
+
+    \App\Models\ElectricityPrice::where('meter_id', $this->main->id)->whereDate('month', $this->month->toDateString())->delete();
+    $root = app(ConsumptionTree::class)->build($this->month)->first();
+    expect($root['kwh'])->toBeNull()->and($root['source'])->toBe(ConsumptionTree::NO_INVOICE)->and($root['difference'])->toBeNull();
+});
+
+it('does not compare a measuring point installed in the middle of the month', function () {
+    $this->point->update(['installed_on' => $this->month->addDays(10)->toDateString()]);
+    app(ReadingService::class)->record($this->point, 50300, $this->month->addMonthNoOverflow(), ReadingSource::Admin);
+
+    $node = app(ConsumptionTree::class)->build($this->month)->first()['children']->firstWhere('key', 'm'.$this->point->id);
+
+    expect($node['partial'])->toBeTrue()
+        ->and($node['difference'])->toBeNull()
+        ->and($node['effective_kwh'])->toBe($node['children_kwh']);
+});
+
+it('lets the admin attach a measuring point without main meter on the schema page', function () {
+    $loose = Meter::create(['number' => 'AN-LOOSE', 'location' => 'Abzweig Werkstatt', 'is_analyzer' => true]);
+
+    Volt::actingAs($this->admin)->test('analyzer.schema')
+        ->assertSee('Zähler ohne Hauptzähler')
+        ->assertSee('AN-LOOSE')
+        ->set("feeds.{$loose->id}", (string) $this->main->id)
+        ->assertDontSee('Zähler ohne Hauptzähler');
+
+    expect($loose->fresh()->parent_id)->toBe($this->main->id);
+
+    Volt::actingAs($this->admin)->test('meters.index')
+        ->call('create')
+        ->set('number', 'AN-NEW')
+        ->set('is_analyzer', true)
+        ->assertSet('parent_id', (string) $this->main->id)
+        ->set('parent_id', '')
+        ->set('initial_value', '0')
+        ->call('save')
+        ->assertHasErrors(['parent_id']);
+});

@@ -54,6 +54,14 @@ new #[Title('Zähler')] class extends Component {
         $this->resetPage();
     }
 
+    public function updatedIsAnalyzer(): void
+    {
+        // Messpunkte hängen immer an einem Hauptzähler; bei nur einem Hauptzähler gleich vorbelegen.
+        if ($this->is_analyzer && $this->parent_id === '' && $this->mainMeters->count() === 1) {
+            $this->parent_id = (string) $this->mainMeters->first()->id;
+        }
+    }
+
     public function updatedMedium(): void
     {
         // Hauptzähler gehören immer zum gleichen Medium (Strom bzw. Wasser).
@@ -150,7 +158,7 @@ new #[Title('Zähler')] class extends Component {
             'factor' => ['required', 'integer', 'min:1', 'max:10000'],
             'is_main' => ['boolean'],
             'is_analyzer' => ['boolean'],
-            'parent_id' => ['nullable', Rule::notIn([$this->editingId]), Rule::exists('meters', 'id')->where('is_main', true)
+            'parent_id' => [Rule::requiredIf(fn () => $this->is_analyzer && ! $this->is_main), 'nullable', Rule::notIn([$this->editingId]), Rule::exists('meters', 'id')->where('is_main', true)
                 ->whereIn('medium', $this->mediumEnum()->isWater() ? array_map(fn (Medium $m) => $m->value, Medium::water()) : [Medium::Electricity->value])],
             'tenant_id' => ['nullable', 'exists:tenants,id'],
             'is_active' => ['boolean'],

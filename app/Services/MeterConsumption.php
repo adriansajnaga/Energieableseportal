@@ -27,6 +27,8 @@ class MeterConsumption
 
     public const NONE = 'none';
 
+    public const NOT_INSTALLED = 'not_installed';
+
     /** @var array<int, Collection<int, Reading>> */
     private array $readings = [];
 
@@ -55,12 +57,21 @@ class MeterConsumption
     }
 
     /**
-     * @return array{kwh: ?int, source: string, from: ?CarbonImmutable, to: ?CarbonImmutable}
+     * "partial": der Zähler war nicht den ganzen Monat eingebaut (Einbau/Ausbau im Monat).
+     *
+     * @return array{kwh: ?int, source: string, from: ?CarbonImmutable, to: ?CarbonImmutable, partial: bool}
      */
     public function forMonth(Meter $meter, CarbonInterface $month, ?int $settledKwh = null): array
     {
-        $start = CarbonImmutable::parse($month)->startOfMonth();
-        $end = $start->addMonthNoOverflow();
+        $monthStart = CarbonImmutable::parse($month)->startOfMonth();
+        $monthEnd = $monthStart->addMonthNoOverflow();
+        $start = $monthStart;
+        $end = $monthEnd;
+
+        if (($meter->installed_on && $meter->installed_on->greaterThanOrEqualTo($monthEnd))
+            || ($meter->removed_on && $meter->removed_on->lessThanOrEqualTo($monthStart))) {
+            return ['kwh' => null, 'source' => self::NOT_INSTALLED, 'from' => null, 'to' => null, 'partial' => true];
+        }
 
         if ($meter->installed_on && $meter->installed_on->greaterThan($start)) {
             $start = CarbonImmutable::parse($meter->installed_on);
@@ -69,12 +80,10 @@ class MeterConsumption
             $end = CarbonImmutable::parse($meter->removed_on);
         }
 
-        if ($settledKwh !== null) {
-            return ['kwh' => $settledKwh, 'source' => self::SETTLED, 'from' => $start, 'to' => $end];
-        }
+        $partial = $start->greaterThan($monthStart) || $end->lessThan($monthEnd);
 
-        if ($end->lessThanOrEqualTo($start)) {
-            return ['kwh' => 0, 'source' => self::MEASURED, 'from' => $start, 'to' => $end];
+        if ($settledKwh !== null) {
+            return ['kwh' => $settledKwh, 'source' => self::SETTLED, 'from' => $start, 'to' => $end, 'partial' => $partial];
         }
 
         $readings = $this->readings[$meter->id] ?? $this->load($meter, $start, $end);
@@ -82,7 +91,7 @@ class MeterConsumption
         [$endValue, $endSource] = $this->valueAt($readings, $end);
 
         if ($startValue === null || $endValue === null) {
-            return ['kwh' => null, 'source' => self::NONE, 'from' => $start, 'to' => $end];
+            return ['kwh' => null, 'source' => self::NONE, 'from' => $start, 'to' => $end, 'partial' => $partial];
         }
 
         $ranks = [self::MEASURED => 0, self::INTERPOLATED => 1, self::ESTIMATED => 2];
@@ -93,6 +102,7 @@ class MeterConsumption
             'source' => $source,
             'from' => $start,
             'to' => $end,
+            'partial' => $partial,
         ];
     }
 
@@ -162,6 +172,7 @@ class MeterConsumption
             self::INTERPOLATED => __('interpoliert'),
             self::ESTIMATED => __('hochgerechnet'),
             self::SETTLED => __('abgerechnet'),
+            self::NOT_INSTALLED => __('nicht eingebaut'),
             default => __('keine Daten'),
         };
     }

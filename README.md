@@ -54,7 +54,7 @@ php artisan energie:import-legacy --photos="C:/sciezka/do/starego/uploads/readin
 ## Analizator i schemat połączeń (szukanie strat)
 
 - **Leitungsschema** (menu „Analysator”): punkty pomiarowe (`meters.is_analyzer`) na odgałęzieniach licznika głównego i przypisanie liczników końcowych do odgałęzienia (`meters.feed_id`, puste = bezpośrednio z licznika głównego). Punkty pomiarowe są odczytywane, ale nigdy nie rozliczane.
-- **Verbrauchsverteilung** (przycisk w „Abrechnung”): drzewo zużycia miesiąca od 1. do 1. z różnicą każdego węzła względem sumy liczników pod nim (czerwony od 15 %, żółty od 5 %). Zużycie: kWh z rozliczenia albo z odczytów (odczyt 1. dnia, interpolacja między odczytami lub ekstrapolacja), z mnożnikiem licznika.
+- **Verbrauchsverteilung** (przycisk w „Abrechnung”): drzewo zużycia miesiąca od 1. do 1. z różnicą każdego węzła względem sumy liczników pod nim (czerwony od 15 %, żółty od 5 %). Licznik główny: zawsze zużycie z faktury dostawcy (wprowadzane razem z ceną w „Strompreise”). Pozostałe: kWh z rozliczenia albo z odczytów (odczyt 1. dnia, interpolacja lub ekstrapolacja), z mnożnikiem licznika. Punkty pomiarowe są widoczne w schemacie także w miesiącach przed montażem; wtedy (i w miesiącu montażu) liczy się suma liczników za nimi, bez różnicy.
 - **Analysator-Geräte**: urządzenia ESP32 z tokenem (SHA-256 w bazie), sloty 1–6, przypisanie slotu do punktu pomiarowego. Najwcześniejszy stan każdego dnia (odczyt planowy o 00:00 czasu Europe/Warsaw) trafia jako odczyt punktu pomiarowego.
 
 ### API analizatora

@@ -121,6 +121,13 @@ class MeterService
             throw new RuntimeException(__('Ein Hauptzähler hat keinen vorgeschalteten Zähler.'));
         }
 
+        // Zähler ohne Hauptzähler: der gewählte Hauptzähler wird sein Hauptzähler.
+        if ($feed?->is_main && $meter->parent_id === null && $feed->isWater() === $meter->isWater()) {
+            $meter->update(['parent_id' => $feed->id, 'feed_id' => null]);
+
+            return;
+        }
+
         if (! $feed || $feed->id === $meter->parent_id) {
             $meter->update(['feed_id' => null]);
 

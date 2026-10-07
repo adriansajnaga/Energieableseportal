@@ -13,10 +13,16 @@ use Illuminate\Support\Collection;
  * Verbrauchsverteilung eines Monats als Baum nach dem Leitungsschema:
  * Hauptzähler -> Abzweige (Analysator-Messpunkte) -> Endzähler. Je Knoten mit Unterzählern wird die Differenz
  * (Verbrauch des Knotens minus Summe der Unterzähler) ausgewiesen – dort geht Energie verloren oder ein Zähler fehlt.
+ *
+ * - Hauptzähler: immer der Verbrauch laut Versorgerrechnung (Strompreise), nie aus Ablesungen gerechnet.
+ * - Messpunkte zeigen das aktuelle Schema auch in Monaten vor ihrem Einbau. Ohne eigene Messung für den ganzen
+ *   Monat zählt für den übergeordneten Knoten die Summe der Zähler dahinter.
  */
 class ConsumptionTree
 {
     public const INVOICE = 'invoice';
+
+    public const NO_INVOICE = 'no_invoice';
 
     public function __construct(private MeterConsumption $consumption) {}
 
@@ -27,7 +33,13 @@ class ConsumptionTree
     {
         $period = CarbonImmutable::parse($month)->startOfMonth();
 
-        $meters = Meter::query()->electricity()->existingIn($period)->with('tenant')->orderBy('number')->get()->keyBy('id');
+        $meters = Meter::query()->electricity()
+            ->where(fn ($q) => $q->existingIn($period)->orWhere(fn ($q) => $q->where('is_analyzer', true)->where('is_active', true)))
+            ->with('tenant')
+            ->orderByDesc('is_analyzer')
+            ->orderBy('number')
+            ->get()
+            ->keyBy('id');
         $this->consumption->preload($meters->keys()->all(), $period);
 
         $settled = Settlement::query()->effective()
@@ -61,11 +73,13 @@ class ConsumptionTree
             $visited[$id] = true;
             $meter = $meters[$id];
 
-            $billable = ! $meter->is_main && ! $meter->is_analyzer;
-            $result = $this->consumption->forMonth($meter, $period, $billable ? $settled->get($id) : null);
-
-            if ($meter->is_main && $result['kwh'] === null && $supplier->has($id)) {
-                $result = ['kwh' => (int) round((float) $supplier[$id]), 'source' => self::INVOICE];
+            if ($meter->is_main) {
+                // Hauptzähler: Verbrauch laut Rechnung des Versorgers (wird mit dem Strompreis erfasst).
+                $result = $supplier->has($id)
+                    ? ['kwh' => (int) round((float) $supplier[$id]), 'source' => self::INVOICE, 'partial' => false]
+                    : ['kwh' => null, 'source' => self::NO_INVOICE, 'partial' => false];
+            } else {
+                $result = $this->consumption->forMonth($meter, $period, $meter->is_analyzer ? null : $settled->get($id));
             }
 
             $kids = collect($children[$id] ?? [])
@@ -80,7 +94,7 @@ class ConsumptionTree
                 kwh: $result['kwh'],
                 source: $result['source'],
                 children: $kids,
-                supplierKwh: $meter->is_main && $supplier->has($id) ? (int) round((float) $supplier[$id]) : null,
+                partial: $result['partial'],
                 period: $period,
             );
         };
@@ -103,7 +117,7 @@ class ConsumptionTree
                 kwh: null,
                 source: MeterConsumption::NONE,
                 children: $orphans,
-                supplierKwh: null,
+                partial: false,
                 period: $period,
             ));
         }
@@ -117,24 +131,32 @@ class ConsumptionTree
         return $nodes->flatMap(fn (array $node) => collect([$node])->merge(self::flatten($node['children'])));
     }
 
-    private function node(string $key, ?Meter $meter, string $label, ?int $kwh, string $source, Collection $children, ?int $supplierKwh, CarbonImmutable $period): array
+    private function node(string $key, ?Meter $meter, string $label, ?int $kwh, string $source, Collection $children, bool $partial, CarbonImmutable $period): array
     {
-        $childrenKwh = $children->isEmpty() ? null : (int) $children->sum(fn (array $c) => $c['kwh'] ?? 0);
-        $missing = $children->filter(fn (array $c) => $c['kwh'] === null)->count();
-        $difference = $kwh !== null && $childrenKwh !== null ? $kwh - $childrenKwh : null;
+        $childrenKwh = $children->isEmpty() ? null : (int) $children->sum(fn (array $c) => $c['effective_kwh'] ?? 0);
+        $missing = $children->filter(fn (array $c) => $c['effective_kwh'] === null)->count();
+
+        // Differenz nur, wenn der Knoten den ganzen Monat gemessen hat.
+        $measured = $kwh !== null && ! $partial;
+        $difference = $measured && $childrenKwh !== null ? $kwh - $childrenKwh : null;
+
+        // Wert für den übergeordneten Knoten: eigene Messung, sonst die (vollständige) Summe der Zähler dahinter.
+        $effective = $children->isNotEmpty() && ! $measured ? ($missing === 0 ? $childrenKwh : null) : $kwh;
 
         return [
             'key' => $key,
             'meter' => $meter,
             'label' => $label,
             'kwh' => $kwh,
+            'effective_kwh' => $effective,
             'source' => $source,
-            'supplier_kwh' => $supplierKwh,
+            'partial' => $partial,
             'children' => $children,
             'children_kwh' => $childrenKwh,
             'children_missing' => $missing,
             'difference' => $difference,
             'percent' => $difference !== null && $kwh > 0 ? round($difference / $kwh * 100, 1) : null,
+            'not_installed' => $source === MeterConsumption::NOT_INSTALLED,
             'installed' => $meter?->installed_on && $meter->installed_on->isSameMonth($period) && $meter->installed_on->greaterThan($period),
             'removed' => $meter?->removed_on && $meter->removed_on->lessThan($period->addMonthNoOverflow()),
         ];
@@ -142,7 +164,11 @@ class ConsumptionTree
 
     public static function sourceLabel(string $source): string
     {
-        return $source === self::INVOICE ? __('Versorgerrechnung') : MeterConsumption::sourceLabel($source);
+        return match ($source) {
+            self::INVOICE => __('Versorgerrechnung'),
+            self::NO_INVOICE => __('Versorgerrechnung fehlt'),
+            default => MeterConsumption::sourceLabel($source),
+        };
     }
 
     /** Farbe der Differenz: rot ab 15 %, gelb ab 5 % oder wenn die Unterzähler mehr zeigen als der Knoten. */
