@@ -4,9 +4,9 @@
 @if ($roots->isEmpty())
     <flux:callout icon="information-circle" :text="__('In diesem Monat waren keine Stromzähler eingebaut.')" />
 @else
-    <div class="space-y-6">
+    <div class="space-y-8">
         @foreach ($roots as $root)
-            <flux:card class="space-y-4" wire:key="tree-{{ $root['key'] }}">
+            <flux:card class="space-y-6" wire:key="tree-{{ $root['key'] }}">
                 @if ($root['meter'])
                     @php
                         $worst = \App\Services\ConsumptionTree::flatten($root['children'])
@@ -14,7 +14,7 @@
                             ->sortByDesc('difference')
                             ->first();
                     @endphp
-                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="grid gap-4 border-b border-zinc-200 pb-5 sm:grid-cols-2 xl:grid-cols-4 dark:border-zinc-700">
                         <div>
                             <flux:text size="sm">{{ __('Hauptzähler :number', ['number' => $root['meter']->number]) }}</flux:text>
                             <flux:heading size="lg">{{ $root['kwh'] !== null ? number_format($root['kwh'], 0, ',', '.').' kWh' : '–' }}</flux:heading>

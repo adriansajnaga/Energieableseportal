@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Enums\ReadingSource;
+use App\Models\AnalyzerSlot;
 use App\Models\Meter;
 use App\Models\MeterAssignment;
+use App\Models\Reading;
 use App\Models\Tenant;
 use App\Models\User;
 use Carbon\CarbonInterface;
@@ -143,6 +145,31 @@ class MeterService
         }
 
         $meter->update(['feed_id' => $feed->id]);
+    }
+
+    /**
+     * Messpunkt des Analysators löschen (z. B. versehentlich angelegt). Die Zähler dahinter hängen danach am
+     * vorgeschalteten Knoten, Zuordnungen von Analysator-Plätzen werden aufgehoben, seine Ablesungen gelöscht.
+     * Abrechnungszähler werden nie gelöscht, nur deaktiviert.
+     */
+    public function deleteMeasuringPoint(Meter $meter): void
+    {
+        if (! $meter->is_analyzer) {
+            throw new RuntimeException(__('Nur Messpunkte des Analysators können gelöscht werden.'));
+        }
+
+        DB::transaction(function () use ($meter) {
+            Meter::query()->where('feed_id', $meter->id)->update(['feed_id' => $meter->feed_id]);
+            AnalyzerSlot::query()->where('meter_id', $meter->id)->update(['meter_id' => null, 'meter_since' => null]);
+            Meter::query()->where('replaced_by_id', $meter->id)->update(['replaced_by_id' => null]);
+
+            $meter->readings()->get()->each(function (Reading $reading) {
+                $reading->deletePhoto();
+                $reading->delete();
+            });
+            $meter->assignments()->delete();
+            $meter->delete();
+        });
     }
 
     /** Liegt $candidate (über feed_id) hinter $meter? */

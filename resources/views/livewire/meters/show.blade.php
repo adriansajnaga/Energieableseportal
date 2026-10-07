@@ -101,6 +101,15 @@ new class extends Component {
         Flux::toast(__('Neuer QR-Code erzeugt. Bitte das Etikett am Zähler austauschen.'), variant: 'warning');
     }
 
+    public function deleteMeasuringPoint(MeterService $service)
+    {
+        Gate::authorize('manage');
+        $service->deleteMeasuringPoint($this->meter);
+        Flux::toast(__('Messpunkt :number gelöscht.', ['number' => $this->meter->number]), variant: 'success');
+
+        return $this->redirectRoute('analyzer.schema', navigate: true);
+    }
+
     public function openTenantChange(): void
     {
         Gate::authorize('manage');
@@ -190,6 +199,10 @@ new class extends Component {
             @if ($meter->is_active)
                 <flux:button icon="arrows-right-left" wire:click="openTenantChange">{{ __('Mieterwechsel') }}</flux:button>
                 <flux:button icon="wrench-screwdriver" wire:click="openReplace">{{ __('Zählerwechsel') }}</flux:button>
+            @endif
+            @if ($meter->is_analyzer)
+                <flux:button icon="trash" variant="ghost" wire:click="deleteMeasuringPoint"
+                    wire:confirm="{{ __('Messpunkt :number löschen? Die Zähler dahinter hängen danach direkt am vorgeschalteten Zähler, die Ablesungen des Messpunkts werden gelöscht.', ['number' => $meter->number]) }}">{{ __('Löschen') }}</flux:button>
             @endif
         @endcan
     </x-page-header>

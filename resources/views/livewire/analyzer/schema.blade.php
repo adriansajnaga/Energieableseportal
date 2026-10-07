@@ -4,6 +4,7 @@ use App\Enums\Medium;
 use App\Livewire\Concerns\WithWorkingMonth;
 use App\Models\AnalyzerSlot;
 use App\Models\Meter;
+use App\Models\SitePlan;
 use App\Services\ConsumptionTree;
 use App\Services\MeterService;
 use Carbon\CarbonImmutable;
@@ -15,9 +16,10 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Title('Leitungsschema')] class extends Component {
-    use WithWorkingMonth;
+    use WithFileUploads, WithWorkingMonth;
 
     /** Vorgeschalteter Zähler je Zähler (ID als String, Hauptzähler = direkt). */
     public array $feeds = [];
@@ -30,6 +32,10 @@ new #[Title('Leitungsschema')] class extends Component {
     public string $factor = '1';
     public string $initial_value = '';
     public string $starts_on = '';
+
+    // Rzut obiektu (Bild oder PDF)
+    public $planFile = null;
+    public string $planTitle = '';
 
     public function mount(): void
     {
@@ -65,7 +71,7 @@ new #[Title('Leitungsschema')] class extends Component {
     #[Computed]
     public function analyzerMeters(): Collection
     {
-        return Meter::query()->electricity()->analyzer()->active()->with(['feed', 'parent'])->orderBy('number')->get();
+        return Meter::query()->electricity()->analyzer()->with(['feed', 'parent'])->orderByDesc('is_active')->orderBy('number')->get();
     }
 
     #[Computed]
@@ -130,6 +136,65 @@ new #[Title('Leitungsschema')] class extends Component {
         Flux::modal('measuring-point')->show();
     }
 
+    #[Computed]
+    public function plans(): Collection
+    {
+        return SitePlan::query()->orderBy('position')->orderBy('id')->get();
+    }
+
+    /** Versehentlich angelegten Messpunkt löschen; Zähler dahinter hängen danach am vorgeschalteten Knoten. */
+    public function deleteMeasuringPoint(int $meterId): void
+    {
+        Gate::authorize('manage');
+        $meter = Meter::findOrFail($meterId);
+
+        try {
+            app(MeterService::class)->deleteMeasuringPoint($meter);
+        } catch (RuntimeException $e) {
+            Flux::toast($e->getMessage(), variant: 'danger');
+
+            return;
+        }
+
+        $this->loadFeeds();
+        unset($this->roots, $this->groups, $this->unassigned, $this->analyzerMeters);
+        Flux::toast(__('Messpunkt :number gelöscht.', ['number' => $meter->number]), variant: 'success');
+    }
+
+    public function uploadPlan(): void
+    {
+        Gate::authorize('manage');
+
+        $this->validate([
+            'planFile' => ['required', 'file', 'mimes:'.implode(',', SitePlan::MIMES), 'max:12288'],
+            'planTitle' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $name = $this->planFile->getClientOriginalName();
+
+        SitePlan::create([
+            'title' => trim($this->planTitle) !== '' ? trim($this->planTitle) : pathinfo($name, PATHINFO_FILENAME),
+            'path' => $this->planFile->store('plans', 'local'),
+            'original_name' => $name,
+            'mime' => $this->planFile->getMimeType(),
+            'size' => $this->planFile->getSize(),
+            'position' => (int) SitePlan::max('position') + 1,
+            'uploaded_by' => Auth::id(),
+        ]);
+
+        $this->reset(['planFile', 'planTitle']);
+        unset($this->plans);
+        Flux::toast(__('Plan hochgeladen.'), variant: 'success');
+    }
+
+    public function deletePlan(int $planId): void
+    {
+        Gate::authorize('manage');
+        SitePlan::findOrFail($planId)->delete();
+        unset($this->plans);
+        Flux::toast(__('Plan gelöscht.'));
+    }
+
     public function updatedParentId(): void
     {
         $this->feed_id = '';
@@ -186,7 +251,7 @@ new #[Title('Leitungsschema')] class extends Component {
         @endcan
     </x-page-header>
 
-    <flux:callout icon="information-circle" class="mb-6">
+    <flux:callout icon="information-circle" class="mb-8">
         <flux:callout.text>
             {{ __('Ein Messpunkt ist ein zusätzlicher Zähler des Analysators auf einem Abzweig vom Hauptzähler. Ordnen Sie unten die Endzähler dem Abzweig zu, über den sie versorgt werden. Die Differenz zwischen Messpunkt und Summe der Zähler dahinter zeigt, auf welcher Leitung Energie verloren geht. Messpunkte werden nicht abgerechnet.') }}
         </flux:callout.text>
@@ -194,8 +259,8 @@ new #[Title('Leitungsschema')] class extends Component {
 
     <x-consumption-tree :roots="$this->roots" />
 
-    <flux:heading size="lg" class="mt-8">{{ __('Zuordnung der Zähler') }}</flux:heading>
-    <flux:text class="mb-3">{{ __('Für jeden Zähler: über welchen Abzweig (Messpunkt) oder direkt über welchen Hauptzähler er versorgt wird.') }}</flux:text>
+    <flux:heading size="lg" class="mt-12">{{ __('Zuordnung der Zähler') }}</flux:heading>
+    <flux:text class="mb-4 mt-1">{{ __('Für jeden Zähler: über welchen Abzweig (Messpunkt) oder direkt über welchen Hauptzähler er versorgt wird.') }}</flux:text>
 
     <div class="space-y-4">
         @if ($this->unassigned->isNotEmpty())
@@ -271,20 +336,24 @@ new #[Title('Leitungsschema')] class extends Component {
         @endforelse
     </div>
 
-    <flux:heading size="lg" class="mt-8">{{ __('Analysator-Messpunkte') }}</flux:heading>
-    <flux:table class="mt-2">
+    <flux:heading size="lg" class="mt-12">{{ __('Analysator-Messpunkte') }}</flux:heading>
+    <flux:table class="mt-3">
         <flux:table.columns>
             <flux:table.column>{{ __('Messpunkt') }}</flux:table.column>
             <flux:table.column>{{ __('Abzweig / Ort') }}</flux:table.column>
             <flux:table.column>{{ __('Versorgt über') }}</flux:table.column>
             <flux:table.column>{{ __('Analysator') }}</flux:table.column>
             <flux:table.column align="end">{{ __('Letzter Stand') }}</flux:table.column>
+            <flux:table.column></flux:table.column>
         </flux:table.columns>
         <flux:table.rows>
             @forelse ($this->analyzerMeters as $meter)
                 @php($last = $meter->latestReading())
                 <flux:table.row :key="'mp-'.$meter->id">
-                    <flux:table.cell variant="strong"><flux:link :href="route('meters.show', $meter)" wire:navigate>{{ $meter->number }}</flux:link></flux:table.cell>
+                    <flux:table.cell variant="strong">
+                        <flux:link :href="route('meters.show', $meter)" wire:navigate>{{ $meter->number }}</flux:link>
+                        @unless ($meter->is_active) <flux:badge size="sm" color="zinc" class="ms-1">{{ __('inaktiv') }}</flux:badge> @endunless
+                    </flux:table.cell>
                     <flux:table.cell>{{ $meter->location }}</flux:table.cell>
                     <flux:table.cell>{{ $meter->feed?->number ?? $meter->parent?->number ?? '–' }}</flux:table.cell>
                     <flux:table.cell>
@@ -295,14 +364,68 @@ new #[Title('Leitungsschema')] class extends Component {
                         @endif
                     </flux:table.cell>
                     <flux:table.cell align="end">{{ $last ? number_format($last->value, 0, ',', '.').' kWh · '.$last->read_on->format('d.m.Y') : '–' }}</flux:table.cell>
+                    <flux:table.cell align="end">
+                        @can('manage')
+                            <flux:button size="sm" variant="ghost" icon="trash" wire:click="deleteMeasuringPoint({{ $meter->id }})" :tooltip="__('Messpunkt löschen')"
+                                wire:confirm="{{ __('Messpunkt :number löschen? Die Zähler dahinter hängen danach direkt am vorgeschalteten Zähler, die Ablesungen des Messpunkts werden gelöscht.', ['number' => $meter->number]) }}" />
+                        @endcan
+                    </flux:table.cell>
                 </flux:table.row>
             @empty
                 <flux:table.row>
-                    <flux:table.cell colspan="5" class="text-center text-zinc-500">{{ __('Noch keine Messpunkte angelegt.') }}</flux:table.cell>
+                    <flux:table.cell colspan="6" class="text-center text-zinc-500">{{ __('Noch keine Messpunkte angelegt.') }}</flux:table.cell>
                 </flux:table.row>
             @endforelse
         </flux:table.rows>
     </flux:table>
+
+    <div class="mt-12 flex flex-wrap items-end justify-between gap-3">
+        <div>
+            <flux:heading size="lg">{{ __('Pläne des Objekts') }}</flux:heading>
+            <flux:text>{{ __('Grundriss / Lageplan mit Zählern und Leitungen (PDF oder Bild).') }}</flux:text>
+        </div>
+    </div>
+
+    @can('manage')
+        <form wire:submit="uploadPlan" class="mt-3 flex flex-wrap items-end gap-3">
+            <div class="min-w-64 flex-1">
+                <flux:input wire:model="planFile" type="file" :label="__('Datei (PDF, PNG, JPG, max. 12 MB)')" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*" />
+            </div>
+            <div class="min-w-64 flex-1">
+                <flux:input wire:model="planTitle" :label="__('Bezeichnung (optional)')" :placeholder="__('z. B. Grundriss Halle 1–6')" />
+            </div>
+            <flux:button type="submit" variant="primary" icon="arrow-up-tray" wire:loading.attr="disabled" wire:target="planFile,uploadPlan">{{ __('Hochladen') }}</flux:button>
+        </form>
+        <div wire:loading wire:target="planFile" class="mt-2 text-sm text-zinc-500">{{ __('Datei wird hochgeladen …') }}</div>
+    @endcan
+
+    <div class="mt-4 space-y-6">
+        @forelse ($this->plans as $plan)
+            <flux:card wire:key="plan-{{ $plan->id }}" class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <flux:heading>{{ $plan->title }}</flux:heading>
+                        <flux:text size="sm">{{ $plan->original_name }} · {{ $plan->size >= 1048576 ? number_format($plan->size / 1048576, 1, ',', '.').' MB' : max(1, round($plan->size / 1024)).' KB' }} · {{ $plan->created_at->format('d.m.Y') }}</flux:text>
+                    </div>
+                    <div class="flex gap-1">
+                        <flux:button size="sm" icon="arrow-top-right-on-square" :href="$plan->url()" target="_blank">{{ __('Öffnen') }}</flux:button>
+                        @can('manage')
+                            <flux:button size="sm" variant="ghost" icon="trash" wire:click="deletePlan({{ $plan->id }})" wire:confirm="{{ __('Plan „:title“ löschen?', ['title' => $plan->title]) }}" />
+                        @endcan
+                    </div>
+                </div>
+                @if ($plan->isImage())
+                    <a href="{{ $plan->url() }}" target="_blank">
+                        <img src="{{ $plan->url() }}" alt="{{ $plan->title }}" class="w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-700" loading="lazy">
+                    </a>
+                @elseif ($plan->isPdf())
+                    <iframe src="{{ $plan->url() }}#view=FitH" title="{{ $plan->title }}" class="h-[80vh] w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-700"></iframe>
+                @endif
+            </flux:card>
+        @empty
+            <flux:text class="text-zinc-500">{{ __('Noch kein Plan hochgeladen.') }}</flux:text>
+        @endforelse
+    </div>
 
     <flux:modal name="measuring-point" class="md:w-xl">
         <form wire:submit="saveMeasuringPoint" class="space-y-5">

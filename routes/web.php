@@ -7,6 +7,7 @@ use App\Http\Controllers\LegacyQrController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\ReadingPhotoController;
+use App\Http\Controllers\SitePlanController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -59,6 +60,7 @@ Route::middleware(['auth'])->group(function () {
     // Analysator: Leitungsschema mit Messpunkten und mobile Analysatoren.
     Volt::route('analyzer', 'analyzer.schema')->name('analyzer.schema');
     Volt::route('analyzer/devices', 'analyzer.devices')->name('analyzer.devices');
+    Route::get('analyzer/plans/{plan}', SitePlanController::class)->name('analyzer.plans.show');
 
     // Lesende Analysator-API (Sitzung). Das Gerät selbst sendet an routes/api.php.
     Route::prefix('api/analyzer')->name('analyzer.api.')->controller(AnalyzerController::class)->group(function () {

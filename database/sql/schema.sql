@@ -94,6 +94,8 @@ create table `analyzer_readings` (`id` bigint unsigned not null auto_increment p
 alter table `analyzer_readings` add constraint `analyzer_readings_device_id_foreign` foreign key (`device_id`) references `analyzer_devices` (`id`) on delete cascade  ;
 alter table `analyzer_readings` add unique `analyzer_readings_device_id_boot_up_slot_unique`(`device_id`, `boot`, `up`, `slot`)  ;
 alter table `analyzer_readings` add index `analyzer_readings_device_id_slot_ts_index`(`device_id`, `slot`, `ts`)  ;
+create table `site_plans` (`id` bigint unsigned not null auto_increment primary key, `title` varchar(255) not null, `path` varchar(255) not null, `original_name` varchar(255) not null, `mime` varchar(100) not null, `size` int unsigned not null, `position` smallint unsigned not null default '0', `uploaded_by` bigint unsigned null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
+alter table `site_plans` add constraint `site_plans_uploaded_by_foreign` foreign key (`uploaded_by`) references `users` (`id`) on delete set null  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -107,4 +109,5 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_10_02_000001_add_invoicing_mode_to_tenants', 1),
 ('2026_10_06_000001_add_medium_to_meters_table', 1),
 ('2026_10_07_000001_add_analyzer_fields_to_meters_table', 1),
-('2026_10_07_000002_create_analyzer_tables', 1);
+('2026_10_07_000002_create_analyzer_tables', 1),
+('2026_10_08_000001_create_site_plans_table', 1);

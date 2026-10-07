@@ -218,3 +218,70 @@ it('lets the admin attach a measuring point without main meter on the schema pag
         ->call('save')
         ->assertHasErrors(['parent_id']);
 });
+
+it('deletes a measuring point and moves the meters behind it up', function () {
+    $behind = $this->tenantMeters->take(3)->pluck('id');
+    $slotDevice = \App\Models\AnalyzerDevice::register('analizator-1')[0];
+    $slot = \App\Models\AnalyzerSlot::create(['device_id' => $slotDevice->id, 'slot' => 1, 'meter_id' => $this->point->id]);
+
+    Volt::actingAs($this->admin)->test('analyzer.schema')
+        ->call('deleteMeasuringPoint', $this->point->id)
+        ->assertHasNoErrors();
+
+    expect(Meter::find($this->point->id))->toBeNull()
+        ->and(Meter::whereIn('id', $behind)->pluck('feed_id')->unique()->all())->toBe([null])
+        ->and($slot->fresh()->meter_id)->toBeNull()
+        ->and(\App\Models\Reading::where('meter_id', $this->point->id)->count())->toBe(0);
+
+    // Abrechnungszähler lassen sich so nicht löschen.
+    expect(fn () => app(MeterService::class)->deleteMeasuringPoint($this->tenantMeters->first()))->toThrow(RuntimeException::class);
+
+    Volt::actingAs(User::where('username', 'hausmeister')->first())->test('analyzer.schema')
+        ->call('deleteMeasuringPoint', $this->tenantMeters->first()->id)
+        ->assertForbidden();
+});
+
+it('deletes an analyzer device with its raw data', function () {
+    [$device, $token] = \App\Models\AnalyzerDevice::register('analizator-2');
+    \App\Models\AnalyzerSlot::create(['device_id' => $device->id, 'slot' => 1]);
+    \App\Models\AnalyzerReading::create(['device_id' => $device->id, 'slot' => 1, 'addr' => 1, 'boot' => 1, 'up' => 1, 'reason' => 'plan', 'kwh' => 1, 'received_at' => now()]);
+
+    Volt::actingAs($this->admin)->test('analyzer.devices')
+        ->assertSee('analizator-2')
+        ->call('deleteDevice', $device->id)
+        ->assertDontSee('analizator-2');
+
+    expect(\App\Models\AnalyzerDevice::count())->toBe(0)
+        ->and(\App\Models\AnalyzerReading::count())->toBe(0)
+        ->and(\App\Models\AnalyzerSlot::count())->toBe(0);
+});
+
+it('uploads, shows and deletes a floor plan', function () {
+    Illuminate\Support\Facades\Storage::fake('local');
+    $pdf = Illuminate\Http\UploadedFile::fake()->createWithContent('Rzut Halle.pdf', "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
+
+    Volt::actingAs($this->admin)->test('analyzer.schema')
+        ->set('planFile', $pdf)
+        ->call('uploadPlan')
+        ->assertHasNoErrors()
+        ->assertSee('Rzut Halle');
+
+    $plan = \App\Models\SitePlan::first();
+    expect($plan->title)->toBe('Rzut Halle')->and($plan->isPdf())->toBeTrue();
+    Illuminate\Support\Facades\Storage::disk('local')->assertExists($plan->path);
+
+    $this->actingAs($this->admin)->get($plan->url())->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    $this->actingAs(User::where('username', 'hausmeister')->first())->get(route('analyzer.schema'))->assertOk()->assertSee($plan->url(), false);
+
+    Volt::actingAs($this->admin)->test('analyzer.schema')
+        ->set('planFile', Illuminate\Http\UploadedFile::fake()->createWithContent('plan.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>'))
+        ->call('uploadPlan')
+        ->assertHasErrors(['planFile']);
+
+    Volt::actingAs($this->admin)->test('analyzer.schema')->call('deletePlan', $plan->id);
+    expect(\App\Models\SitePlan::count())->toBe(0);
+    Illuminate\Support\Facades\Storage::disk('local')->assertMissing($plan->path);
+
+    auth()->logout();
+    $this->get(route('analyzer.plans.show', 1))->assertRedirect();
+});

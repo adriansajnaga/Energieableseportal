@@ -7,6 +7,7 @@ use App\Models\Meter;
 use App\Services\Analyzer\MeterReadingSync;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -73,6 +74,22 @@ new #[Title('Analysator-Geräte')] class extends Component {
         Gate::authorize('manage');
         $device = AnalyzerDevice::findOrFail($deviceId);
         $this->showToken($device, $device->regenerateToken());
+    }
+
+    /** Versehentlich angelegtes Gerät mit seinen Rohdaten löschen; übernommene Zählerstände bleiben erhalten. */
+    public function deleteDevice(int $deviceId): void
+    {
+        Gate::authorize('manage');
+        $device = AnalyzerDevice::findOrFail($deviceId);
+
+        DB::transaction(function () use ($device) {
+            $device->readings()->delete();
+            AnalyzerSlot::query()->where('device_id', $device->id)->delete();
+            $device->delete();
+        });
+
+        unset($this->devices, $this->recent);
+        Flux::toast(__('Analysator „:name“ gelöscht.', ['name' => $device->name]), variant: 'success');
     }
 
     public function editSlot(int $slotId): void
@@ -157,6 +174,8 @@ new #[Title('Analysator-Geräte')] class extends Component {
                         @can('manage')
                             <flux:button size="sm" variant="ghost" icon="key" wire:click="regenerateToken({{ $device->id }})"
                                 wire:confirm="{{ __('Neuen Token erzeugen? Der bisherige Token im Gerät funktioniert danach nicht mehr.') }}">{{ __('Neuer Token') }}</flux:button>
+                            <flux:button size="sm" variant="ghost" icon="trash" wire:click="deleteDevice({{ $device->id }})"
+                                wire:confirm="{{ __('Analysator „:name“ löschen? Seine :count empfangenen Rohdaten werden gelöscht, bereits übernommene Zählerstände der Messpunkte bleiben erhalten.', ['name' => $device->name, 'count' => $device->readings_count]) }}">{{ __('Löschen') }}</flux:button>
                         @endcan
                     </div>
                 </div>
