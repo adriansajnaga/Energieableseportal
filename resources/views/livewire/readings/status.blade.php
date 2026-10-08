@@ -92,7 +92,7 @@ new #[Title('Ablesestatus')] class extends Component {
     </x-page-header>
 
     <div class="mb-4 flex flex-wrap gap-3">
-        <flux:select wire:model.live="type" class="max-w-56">
+        <flux:select wire:model.live="type" class="w-full sm:max-w-56">
             <flux:select.option value="">{{ __('Alle Zählerarten') }}</flux:select.option>
             <flux:select.option value="electricity">{{ __('Strom') }}</flux:select.option>
             <flux:select.option value="water">{{ __('Wasser (kalt und warm)') }}</flux:select.option>
@@ -102,21 +102,21 @@ new #[Title('Ablesestatus')] class extends Component {
     @if ($this->missing->isEmpty())
         <flux:callout icon="check-circle" color="green" :heading="__('Alle Zähler sind für diesen Monat abgelesen.')" />
     @else
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             @foreach ($this->missing as $i => $meter)
-                <flux:card class="flex items-center justify-between gap-3" wire:key="missing-{{ $meter->id }}">
-                    <div class="min-w-0">
-                        <div class="font-semibold">
+                <flux:card class="flex min-w-0 items-center justify-between gap-3 p-4!" wire:key="missing-{{ $meter->id }}">
+                    <div class="min-w-0 flex-1">
+                        <div class="font-semibold break-words">
                             {{ $loop->iteration }}. {{ $meter->number }}
                             @if ($meter->isWater()) <flux:badge size="sm" :color="$meter->medium->color()" class="ms-1">{{ $meter->medium->label() }}</flux:badge> @endif
                         </div>
-                        <div class="truncate text-sm text-zinc-500">{{ $meter->tenant?->name ?? __('Kein Mieter') }} · {{ $meter->location }}</div>
+                        <div class="text-sm break-words text-zinc-500">{{ $meter->tenant?->name ?? __('Kein Mieter') }}@if ($meter->location) · {{ $meter->location }}@endif</div>
                         @if ($meter->tenant?->phone)
-                            <a href="tel:{{ $meter->tenant->phone }}" class="text-sm text-emerald-600">{{ $meter->tenant->phone }}</a>
+                            <a href="tel:{{ $meter->tenant->phone }}" class="mt-1 inline-block text-sm text-emerald-600">{{ $meter->tenant->phone }}</a>
                         @endif
                     </div>
                     @can('record-readings')
-                        <flux:button size="sm" variant="primary" wire:click="open({{ $meter->id }})">{{ __('Ablesen') }}</flux:button>
+                        <flux:button size="sm" variant="primary" class="shrink-0" wire:click="open({{ $meter->id }})">{{ __('Ablesen') }}</flux:button>
                     @endcan
                 </flux:card>
             @endforeach

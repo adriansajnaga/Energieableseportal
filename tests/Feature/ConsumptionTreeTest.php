@@ -285,3 +285,45 @@ it('uploads, shows and deletes a floor plan', function () {
     auth()->logout();
     $this->get(route('analyzer.plans.show', 1))->assertRedirect();
 });
+
+it('marks meters on a floor plan and shows them with their consumption', function () {
+    $plan = \App\Models\SitePlan::create(['title' => 'Rzut', 'path' => 'plans/x.png', 'original_name' => 'x.png', 'mime' => 'image/png', 'size' => 10]);
+    $tenantMeter = $this->tenantMeters->first();
+
+    $component = Volt::actingAs($this->admin)->test('analyzer.schema', ['month' => $this->month->format('Y-m')])
+        ->call('startMarking', $plan->id)
+        ->assertSet('markingPlanId', $plan->id)
+        ->assertSet('markMeterId', (string) $this->main->id)
+        ->call('placeMarker', $plan->id, 12.5, 40.25)
+        // Nach dem Setzen ist der nächste Zähler (Messpunkt) ausgewählt.
+        ->assertSet('markMeterId', (string) $this->point->id)
+        ->call('placeMarker', $plan->id, 30, 50)
+        ->call('selectMarkerMeter', $tenantMeter->id)
+        ->call('placeMarker', $plan->id, 150, -5);
+
+    expect($plan->markers()->count())->toBe(3)
+        ->and($plan->markers()->where('meter_id', $this->main->id)->first())->x->toBe(12.5)->y->toBe(40.25)
+        ->and($plan->markers()->where('meter_id', $tenantMeter->id)->first())->x->toBe(100.0)->y->toBe(0.0);
+
+    // Erneutes Setzen verschiebt die Markierung statt eine zweite anzulegen.
+    $component->call('selectMarkerMeter', $this->main->id)->call('placeMarker', $plan->id, 20, 20);
+    expect($plan->markers()->where('meter_id', $this->main->id)->count())->toBe(1)
+        ->and($plan->markers()->where('meter_id', $this->main->id)->value('x'))->toEqual(20);
+
+    $component->call('stopMarking')
+        ->assertSee('left: 20.000%; top: 20.000%', false)
+        ->assertSee('AN-1')
+        ->assertSee(route('meters.show', $tenantMeter), false);
+
+    $marker = $plan->markers()->where('meter_id', $tenantMeter->id)->first();
+    $component->call('removeMarker', $marker->id);
+    expect($plan->markers()->count())->toBe(2);
+
+    // Gelöschter Messpunkt verschwindet auch vom Plan.
+    app(MeterService::class)->deleteMeasuringPoint($this->point);
+    expect($plan->markers()->count())->toBe(1);
+
+    Volt::actingAs(User::where('username', 'hausmeister')->first())->test('analyzer.schema')
+        ->call('startMarking', $plan->id)
+        ->assertForbidden();
+});

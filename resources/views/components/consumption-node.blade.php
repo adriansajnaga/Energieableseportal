@@ -80,12 +80,12 @@
 
     @if ($children->isNotEmpty())
         {{-- Leitungen: senkrechte Linie bis zum letzten Abzweig, waagrechte Linie zu jedem Zähler. --}}
-        <div class="ms-7">
+        <div class="ms-3 sm:ms-7">
             @foreach ($children as $child)
                 <div @class([
-                    'relative pt-4 ps-10',
+                    'relative pt-4 ps-6 sm:ps-10',
                     'before:absolute before:start-0 before:top-0 before:w-[3px] before:rounded-full before:bg-zinc-300 dark:before:bg-zinc-600',
-                    'after:absolute after:start-0 after:top-[50px] after:h-[3px] after:w-10 after:rounded-full after:bg-zinc-300 dark:after:bg-zinc-600',
+                    'after:absolute after:start-0 after:top-[50px] after:h-[3px] after:w-6 sm:after:w-10 after:rounded-full after:bg-zinc-300 dark:after:bg-zinc-600',
                     'before:bottom-0' => ! $loop->last,
                     'before:h-[51px]' => $loop->last,
                 ])>

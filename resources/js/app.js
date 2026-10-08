@@ -26,3 +26,20 @@ window.energieChart = (canvas, config) => {
         },
     });
 };
+
+// Erste Seite eines PDF-Plans auf ein Canvas zeichnen, damit Zähler darauf markiert werden können.
+// pdf.js liegt unter public/vendor/pdfjs und wird erst bei Bedarf geladen (Pfade kommen aus Blade, wegen /em).
+window.renderPdfPlan = async (canvas, url, lib) => {
+    const pdfjs = await import(/* @vite-ignore */ lib.module);
+    pdfjs.GlobalWorkerOptions.workerSrc = lib.worker;
+
+    const pdf = await pdfjs.getDocument({ url, standardFontDataUrl: lib.fonts }).promise;
+    const page = await pdf.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const width = Math.min(3000, Math.max(1400, canvas.parentElement.clientWidth * (window.devicePixelRatio || 1) * 1.5));
+    const viewport = page.getViewport({ scale: width / base.width });
+
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+};

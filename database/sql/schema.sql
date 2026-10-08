@@ -96,6 +96,10 @@ alter table `analyzer_readings` add unique `analyzer_readings_device_id_boot_up_
 alter table `analyzer_readings` add index `analyzer_readings_device_id_slot_ts_index`(`device_id`, `slot`, `ts`)  ;
 create table `site_plans` (`id` bigint unsigned not null auto_increment primary key, `title` varchar(255) not null, `path` varchar(255) not null, `original_name` varchar(255) not null, `mime` varchar(100) not null, `size` int unsigned not null, `position` smallint unsigned not null default '0', `uploaded_by` bigint unsigned null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
 alter table `site_plans` add constraint `site_plans_uploaded_by_foreign` foreign key (`uploaded_by`) references `users` (`id`) on delete set null  ;
+create table `site_plan_markers` (`id` bigint unsigned not null auto_increment primary key, `site_plan_id` bigint unsigned not null, `meter_id` bigint unsigned not null, `x` decimal(6, 3) not null, `y` decimal(6, 3) not null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'  ;
+alter table `site_plan_markers` add constraint `site_plan_markers_site_plan_id_foreign` foreign key (`site_plan_id`) references `site_plans` (`id`) on delete cascade  ;
+alter table `site_plan_markers` add constraint `site_plan_markers_meter_id_foreign` foreign key (`meter_id`) references `meters` (`id`) on delete cascade  ;
+alter table `site_plan_markers` add unique `site_plan_markers_site_plan_id_meter_id_unique`(`site_plan_id`, `meter_id`)  ;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('0001_01_01_000000_create_users_table', 1),
@@ -110,4 +114,5 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_10_06_000001_add_medium_to_meters_table', 1),
 ('2026_10_07_000001_add_analyzer_fields_to_meters_table', 1),
 ('2026_10_07_000002_create_analyzer_tables', 1),
-('2026_10_08_000001_create_site_plans_table', 1);
+('2026_10_08_000001_create_site_plans_table', 1),
+('2026_10_08_000002_create_site_plan_markers_table', 1);

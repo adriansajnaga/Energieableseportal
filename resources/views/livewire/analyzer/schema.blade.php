@@ -5,6 +5,7 @@ use App\Livewire\Concerns\WithWorkingMonth;
 use App\Models\AnalyzerSlot;
 use App\Models\Meter;
 use App\Models\SitePlan;
+use App\Models\SitePlanMarker;
 use App\Services\ConsumptionTree;
 use App\Services\MeterService;
 use Carbon\CarbonImmutable;
@@ -36,6 +37,10 @@ new #[Title('Leitungsschema')] class extends Component {
     // Rzut obiektu (Bild oder PDF)
     public $planFile = null;
     public string $planTitle = '';
+
+    // Zähler auf einem Plan markieren
+    public ?int $markingPlanId = null;
+    public string $markMeterId = '';
 
     public function mount(): void
     {
@@ -139,7 +144,121 @@ new #[Title('Leitungsschema')] class extends Component {
     #[Computed]
     public function plans(): Collection
     {
-        return SitePlan::query()->orderBy('position')->orderBy('id')->get();
+        return SitePlan::query()->with('markers.meter.tenant')->orderBy('position')->orderBy('id')->get();
+    }
+
+    /** Zähler, die auf einem Plan markiert werden können (Haupt-, Messpunkt-, Unter- und Wasserzähler). */
+    #[Computed]
+    public function markableMeters(): Collection
+    {
+        return Meter::query()->active()->with('tenant')
+            ->orderByDesc('is_main')->orderByDesc('is_analyzer')->orderByRaw("medium = 'electricity' desc")->orderBy('number')
+            ->get();
+    }
+
+    /** Verbrauch und Differenz des Monats je Zähler für die Hinweise auf dem Plan. */
+    #[Computed]
+    public function nodeInfo(): array
+    {
+        return ConsumptionTree::flatten($this->roots)
+            ->filter(fn (array $node) => $node['meter'])
+            ->mapWithKeys(fn (array $node) => [$node['meter']->id => [
+                'kwh' => $node['kwh'] ?? $node['effective_kwh'],
+                'difference' => $node['difference'],
+                'percent' => $node['percent'],
+            ]])
+            ->all();
+    }
+
+    public function startMarking(int $planId): void
+    {
+        Gate::authorize('manage');
+        $this->markingPlanId = SitePlan::findOrFail($planId)->id;
+        $this->markMeterId = (string) ($this->nextUnplacedMeter($planId)?->id ?? '');
+    }
+
+    public function stopMarking(): void
+    {
+        $this->reset(['markingPlanId', 'markMeterId']);
+    }
+
+    /** Klick auf eine Markierung im Bearbeitungsmodus: diesen Zähler auswählen (nächster Klick verschiebt ihn). */
+    public function selectMarkerMeter(int $meterId): void
+    {
+        $this->markMeterId = (string) $meterId;
+    }
+
+    public function placeMarker(int $planId, $x, $y): void
+    {
+        Gate::authorize('manage');
+        abort_unless($planId === $this->markingPlanId && is_numeric($x) && is_numeric($y), 422);
+
+        $meter = Meter::query()->active()->find((int) $this->markMeterId);
+        if (! $meter) {
+            Flux::toast(__('Bitte zuerst einen Zähler auswählen.'), variant: 'warning');
+
+            return;
+        }
+
+        SitePlanMarker::query()->updateOrCreate(
+            ['site_plan_id' => $planId, 'meter_id' => $meter->id],
+            ['x' => round(min(100, max(0, (float) $x)), 3), 'y' => round(min(100, max(0, (float) $y)), 3)],
+        );
+
+        // Weiter mit dem nächsten noch nicht markierten Zähler.
+        $this->markMeterId = (string) ($this->nextUnplacedMeter($planId)?->id ?? $meter->id);
+        unset($this->plans);
+    }
+
+    public function removeMarker(int $markerId): void
+    {
+        Gate::authorize('manage');
+        SitePlanMarker::findOrFail($markerId)->delete();
+        unset($this->plans);
+    }
+
+    /** Darstellung einer Markierung: Farbe nach Zählerart, Rand nach Differenz des Messpunkts, Hinweistext. */
+    public function markerView(SitePlanMarker $marker): array
+    {
+        $m = $marker->meter;
+        $info = $this->nodeInfo[$m->id] ?? null;
+
+        $dot = match (true) {
+            $m->is_main => 'bg-amber-500',
+            $m->is_analyzer => 'bg-violet-600',
+            $m->isWater() => 'bg-sky-500',
+            default => 'bg-emerald-600',
+        };
+        $ring = match ($m->is_analyzer && $info ? ConsumptionTree::differenceColor($info['percent']) : null) {
+            'red' => 'ring-red-500',
+            'amber' => 'ring-amber-500',
+            'green' => 'ring-green-500',
+            default => 'ring-zinc-300',
+        };
+        $tip = collect([
+            $m->number.' – '.$m->typeLabel(),
+            $m->tenant?->name,
+            $m->location,
+            $info && $info['kwh'] !== null ? number_format($info['kwh'], 0, ',', '.').' kWh '.$this->period()->format('m/Y') : null,
+            $info && $info['difference'] !== null
+                ? __('Differenz').': '.number_format($info['difference'], 0, ',', '.').' kWh ('.number_format($info['percent'] ?? 0, 1, ',', '.').' %)'
+                : null,
+        ])->filter()->join("
+");
+
+        return [
+            'dot' => $dot,
+            'tip' => $tip,
+            'style' => 'left: '.number_format($marker->x, 3, '.', '').'%; top: '.number_format($marker->y, 3, '.', '').'%',
+            'classes' => 'absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 whitespace-nowrap rounded-full bg-white/95 px-1.5 py-0.5 text-[11px] leading-4 font-semibold text-zinc-900 shadow-md ring-2 hover:z-20 '.$ring,
+        ];
+    }
+
+    private function nextUnplacedMeter(int $planId): ?Meter
+    {
+        $placed = SitePlanMarker::query()->where('site_plan_id', $planId)->pluck('meter_id')->all();
+
+        return $this->markableMeters->first(fn (Meter $m) => ! in_array($m->id, $placed, true));
     }
 
     /** Versehentlich angelegten Messpunkt löschen; Zähler dahinter hängen danach am vorgeschalteten Knoten. */
@@ -414,13 +533,81 @@ new #[Title('Leitungsschema')] class extends Component {
                         @endcan
                     </div>
                 </div>
-                @if ($plan->isImage())
-                    <a href="{{ $plan->url() }}" target="_blank">
-                        <img src="{{ $plan->url() }}" alt="{{ $plan->title }}" class="w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-700" loading="lazy">
-                    </a>
-                @elseif ($plan->isPdf())
-                    <iframe src="{{ $plan->url() }}#view=FitH" title="{{ $plan->title }}" class="h-[80vh] w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-700"></iframe>
+                @php($marking = $markingPlanId === $plan->id)
+
+                @if ($marking)
+                    <div class="space-y-3 rounded-lg border border-blue-300 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/40">
+                        <div class="flex flex-wrap items-end gap-3">
+                            <div class="min-w-64 flex-1">
+                                <flux:select wire:model.live="markMeterId" :label="__('Zähler zum Markieren')">
+                                    @php($placed = $plan->markers->pluck('meter_id')->all())
+                                    @foreach ($this->markableMeters as $meter)
+                                        <flux:select.option :value="$meter->id">{{ in_array($meter->id, $placed, true) ? '✓ ' : '' }}{{ $meter->number }} – {{ $meter->typeLabel() }}{{ $meter->tenant ? ' – '.$meter->tenant->name : ($meter->location ? ' – '.$meter->location : '') }}</flux:select.option>
+                                    @endforeach
+                                </flux:select>
+                            </div>
+                            <flux:button variant="primary" icon="check" wire:click="stopMarking">{{ __('Fertig') }}</flux:button>
+                        </div>
+                        <flux:text size="sm">{{ __('Zähler auswählen und auf die Stelle im Plan klicken. Danach ist automatisch der nächste Zähler ausgewählt. Ein bereits markierter Zähler wird beim nächsten Klick verschoben; ein Klick auf eine Markierung wählt sie aus.') }}</flux:text>
+                        @if ($plan->markers->isNotEmpty())
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach ($plan->markers->sortBy('meter.number') as $marker)
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs shadow-xs dark:bg-zinc-800" wire:key="chip-{{ $marker->id }}">
+                                        {{ $marker->meter->number }}
+                                        <button type="button" class="text-zinc-400 hover:text-red-600" wire:click="removeMarker({{ $marker->id }})" title="{{ __('Markierung entfernen') }}">&times;</button>
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
                 @endif
+
+                @php($pdfLib = ['module' => asset('vendor/pdfjs/pdf.min.js'), 'worker' => asset('vendor/pdfjs/pdf.worker.min.js'), 'fonts' => asset('vendor/pdfjs/standard_fonts').'/'])
+                <div @class(['relative overflow-hidden rounded-lg border border-zinc-200 bg-white select-none dark:border-zinc-700', 'cursor-crosshair ring-2 ring-blue-400' => $marking])
+                    x-data
+                    x-on:click="if (! {{ $marking ? 'true' : 'false' }}) return; const r = $el.getBoundingClientRect(); $wire.placeMarker({{ $plan->id }}, ($event.clientX - r.left) / r.width * 100, ($event.clientY - r.top) / r.height * 100)">
+                    @if ($plan->isImage())
+                        <img src="{{ $plan->url() }}" alt="{{ $plan->title }}" class="block w-full" draggable="false">
+                    @else
+                        <div wire:ignore x-data="{ state: 'loading' }"
+                            x-init="renderPdfPlan($refs.canvas, @js($plan->url()), @js($pdfLib)).then(() => state = 'ready').catch(() => state = 'error')">
+                            <canvas x-ref="canvas" class="block w-full" x-show="state === 'ready'"></canvas>
+                            <div x-show="state === 'loading'" class="p-10 text-center text-sm text-zinc-500">{{ __('Plan wird geladen …') }}</div>
+                            <div x-show="state === 'error'" x-cloak class="p-10 text-center text-sm text-amber-700">{{ __('Der PDF-Plan kann hier nicht angezeigt werden. Bitte mit „Öffnen“ ansehen.') }}</div>
+                        </div>
+                    @endif
+
+                    @foreach ($plan->markers as $marker)
+                        @php($m = $marker->meter)
+                        @php($mv = $this->markerView($marker))
+                        @if ($marking)
+                            <button type="button" wire:key="marker-{{ $marker->id }}" title="{{ $mv['tip'] }}" style="{{ $mv['style'] }}"
+                                x-on:click.stop="$wire.selectMarkerMeter({{ $m->id }})"
+                                @class([$mv['classes'], 'outline-3 outline-blue-500' => (string) $m->id === $markMeterId])>
+                                <span class="size-2.5 shrink-0 rounded-full {{ $mv['dot'] }}"></span>{{ $m->number }}
+                            </button>
+                        @else
+                            <a href="{{ route('meters.show', $m) }}" wire:navigate wire:key="marker-{{ $marker->id }}" title="{{ $mv['tip'] }}" style="{{ $mv['style'] }}" class="{{ $mv['classes'] }}">
+                                <span class="size-2.5 shrink-0 rounded-full {{ $mv['dot'] }}"></span>{{ $m->number }}
+                            </a>
+                        @endif
+                    @endforeach
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+                        <span class="inline-flex items-center gap-1"><span class="size-2.5 rounded-full bg-amber-500"></span>{{ __('Hauptzähler') }}</span>
+                        <span class="inline-flex items-center gap-1"><span class="size-2.5 rounded-full bg-violet-600"></span>{{ __('Analysator-Messpunkt') }}</span>
+                        <span class="inline-flex items-center gap-1"><span class="size-2.5 rounded-full bg-emerald-600"></span>{{ __('Unterzähler') }}</span>
+                        <span class="inline-flex items-center gap-1"><span class="size-2.5 rounded-full bg-sky-500"></span>{{ __('Wasserzähler') }}</span>
+                        <span>{{ __('Rand am Messpunkt: Differenz im :month (rot ab 15 %, gelb ab 5 %)', ['month' => $this->period()->format('m/Y')]) }}</span>
+                    </div>
+                    @can('manage')
+                        @unless ($marking)
+                            <flux:button size="sm" icon="map-pin" wire:click="startMarking({{ $plan->id }})">{{ __('Zähler markieren') }}</flux:button>
+                        @endunless
+                    @endcan
+                </div>
             </flux:card>
         @empty
             <flux:text class="text-zinc-500">{{ __('Noch kein Plan hochgeladen.') }}</flux:text>
